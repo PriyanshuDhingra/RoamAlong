@@ -8,9 +8,12 @@ import type {
   StoryCard,
   TourRoute,
   TourStop,
+  TourTopic,
 } from "../../shared/types.js";
 import {
+  angularSpanOffHeading,
   bearingDegrees,
+  cardinalFromHeading,
   getSectorOffsetCenter,
   haversineMeters,
   movePointByMeters,
@@ -309,6 +312,41 @@ function formatHeartbeatResponse(
 
   const recommendedImmediatePoi = scoredImmediate[0]?.story;
 
+  // Deterministic backend gaze ray-cast: tests which building footprint or landmark
+  // sits directly in the walker's line of sight (within ±28° of headingDeg, up to 160m).
+  const gazeMatches = allStories
+    .map((story) => {
+      const dist = Math.round(haversineMeters(origin, story));
+      const { minAbsAngleDeg } = angularSpanOffHeading(
+        origin,
+        headingDeg,
+        story,
+        story.geometry
+      );
+      const bearing = bearingDegrees(origin, story);
+      const { clockPosition } = relativeClockAndDirection(headingDeg, bearing);
+      // Lower cost = tighter gaze alignment + closer distance
+      const gazeCost = minAbsAngleDeg * 2.4 + dist * 0.45;
+      return {
+        story,
+        distanceMeters: dist,
+        angleOffGazeDeg: Math.round(minAbsAngleDeg),
+        clockPosition,
+        gazeCost,
+      };
+    })
+    .filter((m) => m.angleOffGazeDeg <= 28 && m.distanceMeters <= 160)
+    .sort((a, b) => a.gazeCost - b.gazeCost);
+
+  const gazeCandidate = gazeMatches[0]
+    ? {
+        story: gazeMatches[0].story,
+        distanceMeters: gazeMatches[0].distanceMeters,
+        angleOffGazeDeg: gazeMatches[0].angleOffGazeDeg,
+        clockPosition: gazeMatches[0].clockPosition,
+      }
+    : undefined;
+
   const directionHooks: SpatialHeartbeatResponse["directionHooks"] = [];
   for (const sector of ["NORTH", "EAST", "SOUTH", "WEST"] as QuadrantSector[]) {
     const topStory = entry.sectors[sector]?.stories[0];
@@ -332,10 +370,96 @@ function formatHeartbeatResponse(
     currentStreet: entry.currentStreet,
     city: entry.city,
     countryCode: entry.countryCode,
+    headingDeg: Math.round(((headingDeg % 360) + 360) % 360),
+    headingCardinal: cardinalFromHeading(headingDeg),
     sectors: entry.sectors,
     recommendedImmediatePoi,
+    gazeCandidate,
     directionHooks,
   };
+}
+
+function storyForPoi(poi: RawOsmPoi, known?: StoryCard): StoryCard {
+  if (known) return known;
+  return {
+    id: `tour_${poi.osmId}`,
+    osmId: poi.osmId,
+    name: poi.name,
+    lat: poi.lat,
+    lon: poi.lon,
+    sector: poi.sector ?? "CENTER",
+    categories: [poi.category],
+    sensoryHook: `A ${poi.category} place you can pick out from the sidewalk.`,
+    narrativeSummary: `${poi.name} fits this walk because it is about ${poi.category}.`,
+    hiddenTrivia: "",
+    followUpQuestion: `What do you notice first about ${poi.name}?`,
+    geometry: poi.geometry,
+    score: 70,
+  };
+}
+
+/**
+ * Picks stops whose category matches the user's topics, one topic at a time,
+ * so a food walk and an architecture walk are not the same four landmarks.
+ */
+async function selectStopsForTopics(
+  origin: GeoPoint,
+  knownStories: StoryCard[],
+  topics: TourTopic[],
+  maxStops: number
+): Promise<StoryCard[]> {
+  const wanted = new Set(topics);
+  const knownById = new Map(knownStories.map((story) => [story.osmId, story]));
+  const fallback = [...knownStories]
+    .sort((a, b) => {
+      const aMatch = a.categories.some((topic) => wanted.has(topic)) ? 100 : 0;
+      const bMatch = b.categories.some((topic) => wanted.has(topic)) ? 100 : 0;
+      return bMatch + b.score - (aMatch + a.score);
+    })
+    .slice(0, maxStops);
+
+  let pois: RawOsmPoi[] = [];
+  try {
+    pois = await fetchOverpassPoisBatch(origin, 450);
+  } catch {
+    return fallback;
+  }
+
+  const buckets = new Map<TourTopic, RawOsmPoi[]>();
+  const seenNames = new Set<string>();
+  for (const poi of pois) {
+    if (!wanted.has(poi.category)) continue;
+    const nameKey = poi.name.trim().toLowerCase();
+    if (!nameKey || seenNames.has(nameKey)) continue;
+    const dist = haversineMeters(origin, poi);
+    if (dist < 30 || dist > 650) continue;
+    seenNames.add(nameKey);
+    const list = buckets.get(poi.category) ?? [];
+    list.push(poi);
+    buckets.set(poi.category, list);
+  }
+  for (const list of buckets.values()) {
+    list.sort((a, b) => haversineMeters(origin, a) - haversineMeters(origin, b));
+  }
+
+  const topicOrder = topics.filter((topic) => (buckets.get(topic)?.length ?? 0) > 0);
+  const picked: RawOsmPoi[] = [];
+  while (picked.length < maxStops) {
+    let added = false;
+    for (const topic of topicOrder) {
+      if (picked.length >= maxStops) break;
+      const list = buckets.get(topic);
+      const next = list?.shift();
+      if (!next) continue;
+      if (picked.some((poi) => haversineMeters(poi, next) < 45)) continue;
+      picked.push(next);
+      added = true;
+    }
+    if (!added) break;
+  }
+
+  if (picked.length < 2) return fallback;
+  return picked.map((poi) => storyForPoi(poi, knownById.get(poi.osmId)));
 }
 
 /**
@@ -365,10 +489,12 @@ export async function generateGuidedTourRoute(
     }
   }
 
-  const candidates = [...uniqueStories.values()].sort(
-    (a, b) => b.score - a.score
+  const selected = await selectStopsForTopics(
+    origin,
+    [...uniqueStories.values()],
+    profile.topics,
+    maxStops
   );
-  const selected = candidates.slice(0, maxStops);
 
   // Order stops by nearest-neighbor walking loop starting from user's origin
   const orderedStops: StoryCard[] = [];

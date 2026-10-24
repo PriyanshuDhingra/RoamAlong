@@ -17,11 +17,14 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
     this.write = 0;
     this.available = 0;
     this.played = 0;
+    this.queued = 0;
+    this.tick = 0;
 
     this.port.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === "push") {
         const samples = msg.samples;
+        this.queued += samples.length;
         for (let i = 0; i < samples.length; i++) {
           this.ring[this.write] = samples[i];
           this.write = (this.write + 1) % this.size;
@@ -33,11 +36,13 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
         }
       } else if (msg.type === "reset_turn") {
         this.played = 0;
+        this.queued = 0;
       } else if (msg.type === "flush") {
         const playedCount = this.played;
         this.available = 0;
         this.read = this.write;
         this.played = 0;
+        this.queued = 0;
         this.port.postMessage({ type: "flushed", played: playedCount, id: msg.id });
       }
     };
@@ -55,6 +60,16 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
       } else {
         out[i] = 0;
       }
+    }
+    this.tick += out.length;
+    if (this.tick >= 2048) {
+      this.tick = 0;
+      this.port.postMessage({
+        type: "progress",
+        played: this.played,
+        queued: this.queued,
+        available: this.available,
+      });
     }
     return true;
   }
@@ -105,6 +120,11 @@ export class AudioSession {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private flushReqId = 0;
   private flushResolvers = new Map<number, (playedMs: number) => void>();
+  public onPlaybackProgress?: (progress: {
+    played: number;
+    queued: number;
+    available: number;
+  }) => void;
 
   unlock(): void {
     if (typeof window === "undefined" || typeof AudioContext === "undefined") {
@@ -177,6 +197,12 @@ export class AudioSession {
             this.flushResolvers.delete(e.data.id);
             resolver(playedMs);
           }
+        } else if (e.data?.type === "progress") {
+          this.onPlaybackProgress?.({
+            played: Number(e.data.played ?? 0),
+            queued: Number(e.data.queued ?? 0),
+            available: Number(e.data.available ?? 0),
+          });
         }
       };
       this.playbackNode.connect(ctx.destination);
@@ -241,6 +267,9 @@ export class AudioSession {
     }
     const ctx = await this.ensureModules();
 
+    if (this.mediaStream) {
+      this.stopMicrophone();
+    }
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,

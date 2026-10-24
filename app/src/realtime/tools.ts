@@ -12,7 +12,9 @@ import type {
   UserCalibrationProfile,
 } from "../../../shared/types.js";
 import {
+  angularSpanOffHeading,
   bearingDegrees,
+  cardinalFromHeading,
   haversineMeters,
   relativeClockAndDirection,
 } from "../../../shared/geo.js";
@@ -27,7 +29,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "save_calibration_profile",
     description:
-      "Save or update the user's personalized tour preferences, topic interests, storytelling vibe, languages, and tour mode (wandering vs guided_tour) whenever they share what they want to experience. Say a brief confirmation when calling.",
+      "Save or update the user's personalized tour preferences, topic interests, and storytelling vibe whenever they share what they want to experience. The Wander / Tours toggle on screen controls the mode. Do not ask about language. Say a brief confirmation when calling.",
     parameters: {
       type: "object",
       properties: {
@@ -62,17 +64,12 @@ export const BOSON_SESSION_TOOLS = [
           type: "string",
           enum: ["high", "balanced", "on_demand"],
         },
-        languages: {
-          type: "array",
-          items: { type: "string" },
-          description: "Languages the user wants to converse or hear phrases in.",
-        },
         mode: {
           type: "string",
           enum: ["wandering", "guided_tour"],
         },
       },
-      required: ["topics", "story_style", "mode"],
+      required: ["topics", "story_style"],
     },
   },
   {
@@ -138,7 +135,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "highlight_on_map",
     description:
-      "Illuminate a building footprint, street corridor, neighborhood zone, or directional cone on the user's minimalist map UI so they can visually see what you are talking about. Call this whenever you start discussing a landmark or street.",
+      "Light up a place on the map. Each call adds a place, so call it once per building, street, or neighborhood you are talking about and they all stay visible together. Pass clear_others true only when the previous places should come off the map.",
     parameters: {
       type: "object",
       properties: {
@@ -158,6 +155,10 @@ export const BOSON_SESSION_TOOLS = [
           type: "string",
           description: "Optional OSM ID from the spatial briefing.",
         },
+        clear_others: {
+          type: "boolean",
+          description: "True to remove the places already highlighted before adding this one.",
+        },
       },
       required: ["target_type", "label"],
     },
@@ -166,7 +167,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "plan_or_update_route",
     description:
-      "Switch between free Wandering Mode and Guided Tour Mode, or generate a curated walking route visiting top landmarks matching the user's interests. Say a short preamble before calling.",
+      "Plan a guided walk from the user's saved preferences, or switch back to wandering. A guided route does not exist until save_calibration_profile has run. If they chose Tours before saying what they want, ask and save first. Do not call this when the user accepts the tour or says let's go. Say a short preamble before calling.",
     parameters: {
       type: "object",
       properties: {
@@ -209,7 +210,7 @@ export interface ToolExecutionContext {
   setLatestHeartbeat: (hb: SpatialHeartbeatResponse) => void;
   getActiveRoute: () => TourRoute | null;
   setActiveRoute: (route: TourRoute | null) => void;
-  onMapHighlight: (action: MapHighlightAction) => void;
+  onMapHighlight: (action: MapHighlightAction, clearOthers?: boolean) => void;
 }
 
 /**
@@ -252,10 +253,10 @@ export async function executeClientTool(
   }
 }
 
-function handleSaveCalibration(
+async function handleSaveCalibration(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext
-): ToolResult<UserCalibrationProfile> {
+): Promise<ToolResult> {
   const current = ctx.getProfile();
   const topics = Array.isArray(args.topics)
     ? (args.topics as TourTopic[])
@@ -272,10 +273,7 @@ function handleSaveCalibration(
     Array.isArray(args.languages) && args.languages.length > 0
       ? (args.languages as string[])
       : current.languages;
-  const mode =
-    args.mode === "guided_tour" || args.mode === "wandering"
-      ? (args.mode as TourMode)
-      : current.mode;
+  const mode = current.mode;
 
   const updated: UserCalibrationProfile = {
     calibrated: true,
@@ -289,15 +287,27 @@ function handleSaveCalibration(
   };
   ctx.setProfile(updated);
 
+  const saved = `Saved calibration profile: ${mode.replace(
+    "_",
+    " "
+  )} mode focusing on ${topics.join(", ")} in a ${story_style.replace(
+    /_/g,
+    " "
+  )} style (languages: ${languages.join(", ")}).`;
+
+  if (updated.mode !== "guided_tour") {
+    return { summary: saved, detail: updated };
+  }
+
+  const routeResult = await handlePlanOrUpdateRoute(
+    { mode: "guided_tour", max_stops: 4 },
+    ctx,
+    updated
+  );
   return {
-    summary: `Saved calibration profile: ${mode.replace(
-      "_",
-      " "
-    )} mode focusing on ${topics.join(", ")} in a ${story_style.replace(
-      /_/g,
-      " "
-    )} style (languages: ${languages.join(", ")}).`,
-    detail: updated,
+    summary: `${saved} ${routeResult.summary}`,
+    detail: { profile: updated, route: routeResult.detail },
+    error: routeResult.error,
   };
 }
 
@@ -372,46 +382,77 @@ async function handleGetSpatialBriefing(
     const bearing = Math.round(bearingDegrees(origin, story));
     const { clockPosition, relativeDirection, angleDiff } =
       relativeClockAndDirection(loc.headingDeg, bearing);
+    const { minAbsAngleDeg } = angularSpanOffHeading(
+      origin,
+      loc.headingDeg,
+      story,
+      story.geometry
+    );
     return {
       story,
       dist,
       clockPosition,
       relativeDirection,
       angleDiff,
+      gazeAngleDeg: Math.round(minAbsAngleDeg),
     };
   });
 
   if (directionFilter === "AHEAD") {
-    const aheadOnly = enriched.filter((e) => Math.abs(e.angleDiff) <= 75);
+    const aheadOnly = enriched.filter((e) => e.gazeAngleDeg <= 65);
     if (aheadOnly.length > 0) {
       enriched.splice(0, enriched.length, ...aheadOnly);
     }
+    enriched.sort(
+      (a, b) => a.gazeAngleDeg * 2.4 + a.dist * 0.45 - (b.gazeAngleDeg * 2.4 + b.dist * 0.45)
+    );
+  } else {
+    enriched.sort((a, b) => a.dist - b.dist);
   }
-
-  enriched.sort((a, b) => a.dist - b.dist);
 
   // Cap spoken list at 3 items and put true total in summary (per Boson Tutorial Part 4)
   const shown = enriched.slice(0, 3);
   const more = Math.max(0, enriched.length - shown.length);
 
-  if (shown[0]) {
-    ctx.onMapHighlight({
-      targetType: "building",
-      osmId: shown[0].story.osmId,
-      label: shown[0].story.name,
-      subtitle: shown[0].story.sensoryHook,
-      lat: shown[0].story.lat,
-      lon: shown[0].story.lon,
-      geometry: shown[0].story.geometry,
-      category: shown[0].story.categories[0],
-      timestamp: Date.now(),
-    });
-  }
+  shown.forEach((item, index) => {
+    ctx.onMapHighlight(
+      {
+        targetType: "building",
+        osmId: item.story.osmId,
+        label: item.story.name,
+        subtitle: item.story.sensoryHook,
+        lat: item.story.lat,
+        lon: item.story.lon,
+        geometry: item.story.geometry,
+        category: item.story.categories[0],
+        timestamp: Date.now(),
+      },
+      index === 0
+    );
+  });
+
+  const headingCardinal = cardinalFromHeading(loc.headingDeg);
+  const inFront =
+    hb.gazeCandidate ??
+    (() => {
+      const hit = enriched.find((e) => e.gazeAngleDeg <= 28 && e.dist <= 160);
+      return hit
+        ? {
+            story: hit.story,
+            distanceMeters: hit.dist,
+            angleOffGazeDeg: hit.gazeAngleDeg,
+            clockPosition: hit.clockPosition,
+          }
+        : undefined;
+    })();
+  const inFrontText = inFront
+    ? `Building directly in front of user (12 o'clock): ${inFront.story.name} (${inFront.distanceMeters}m ahead: ${inFront.story.sensoryHook}). `
+    : "";
 
   const summary =
     shown.length === 0
-      ? `0 results found on ${hb.currentStreet}.`
-      : `${enriched.length} results near ${hb.currentStreet} in ${hb.neighborhood}. ` +
+      ? `Heading ${headingCardinal} (${loc.headingDeg} deg) on ${hb.currentStreet}. 0 results found.`
+      : `Heading ${headingCardinal} (${loc.headingDeg} deg) on ${hb.currentStreet} in ${hb.neighborhood}. ${inFrontText}${enriched.length} nearby landmarks: ` +
         shown
           .map(
             (item) =>
@@ -425,6 +466,18 @@ async function handleGetSpatialBriefing(
     detail: {
       currentStreet: hb.currentStreet,
       neighborhood: hb.neighborhood,
+      headingDeg: loc.headingDeg,
+      headingCardinal,
+      buildingInFront: inFront
+        ? {
+            osmId: inFront.story.osmId,
+            name: inFront.story.name,
+            distanceMeters: inFront.distanceMeters,
+            angleOffGazeDeg: inFront.angleOffGazeDeg,
+            sensoryHook: inFront.story.sensoryHook,
+            narrativeSummary: inFront.story.narrativeSummary,
+          }
+        : null,
       shown: shown.map((s) => ({
         osmId: s.story.osmId,
         name: s.story.name,
@@ -493,7 +546,7 @@ async function handleDeepDivePoi(
   const summary = story
     ? `${story.name}: ${story.sensoryHook} ${
         data.wikipediaExtract || story.narrativeSummary
-      } Hidden trivia: ${story.hiddenTrivia}. Suggested follow-up: ${
+      } Hidden trivia: ${story.hiddenTrivia}. Optional aside, not a required question: ${
         story.followUpQuestion
       }`
     : `Found background on ${landmarkName}: ${
@@ -629,25 +682,36 @@ function handleHighlightOnMap(
     timestamp: Date.now(),
   };
 
-  ctx.onMapHighlight(action);
+  const clearOthers = args.clear_others === true;
+  ctx.onMapHighlight(action, clearOthers);
 
   return {
-    summary: `Highlighted ${action.label} (${action.targetType}) on the user's minimalist map.`,
+    summary: `Highlighted ${action.label} (${action.targetType}) on the user's map${
+      clearOthers ? ", clearing the other highlights" : " alongside any places already lit"
+    }.`,
     detail: action,
   };
 }
 
 async function handlePlanOrUpdateRoute(
   args: Record<string, unknown>,
-  ctx: ToolExecutionContext
+  ctx: ToolExecutionContext,
+  savedProfile?: UserCalibrationProfile
 ): Promise<ToolResult> {
   const mode: TourMode =
     args.mode === "guided_tour" ? "guided_tour" : "wandering";
   const maxStops = Math.min(5, Math.max(2, Number(args.max_stops || 4)));
+  const current = savedProfile ?? ctx.getProfile();
+
+  if (mode === "guided_tour" && !current.calibrated) {
+    return {
+      summary:
+        "No route yet. The user has not shared what they want to hear about. Ask for topics and vibe, call save_calibration_profile, and only then plan the tour. Do not invent stops.",
+    };
+  }
 
   const updatedProfile: UserCalibrationProfile = {
-    ...ctx.getProfile(),
-    calibrated: true,
+    ...current,
     mode,
     updatedAt: Date.now(),
   };
@@ -690,25 +754,27 @@ async function handlePlanOrUpdateRoute(
 
   const firstStop = route.stops[0]?.poi;
   if (firstStop) {
-    ctx.onMapHighlight({
-      targetType: "route",
-      osmId: firstStop.osmId,
-      label: route.title,
-      subtitle: `Stop 1: ${firstStop.name} (${route.estimatedDurationMinutes} min walk)`,
-      lat: firstStop.lat,
-      lon: firstStop.lon,
-      geometry: route.polyline,
-      timestamp: Date.now(),
-    });
+    ctx.onMapHighlight(
+      {
+        targetType: "building",
+        osmId: firstStop.osmId,
+        label: route.title,
+        subtitle: `Stop 1: ${firstStop.name} (${route.estimatedDurationMinutes} min walk)`,
+        lat: firstStop.lat,
+        lon: firstStop.lon,
+        geometry: firstStop.geometry,
+        timestamp: Date.now(),
+      },
+      true
+    );
   }
 
   const stopNames = route.stops
-    .slice(0, 3)
-    .map((s) => `Stop ${s.order}: ${s.poi.name}`)
+    .map((s) => `${s.order}. ${s.poi.name}`)
     .join(", ");
 
   return {
-    summary: `Created Guided Tour "${route.title}" with ${route.stops.length} stops (${route.totalDistanceMeters}m, ~${route.estimatedDurationMinutes} mins). ${stopNames}. First stop is ${firstStop?.name}.`,
+    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops: ${stopNames}. Review that once, in this turn only, and ask if it sounds good. If they already said yes or let's go, skip the question and guide them to stop 1. Do not call this tool again just to begin walking.`,
     detail: route,
   };
 }

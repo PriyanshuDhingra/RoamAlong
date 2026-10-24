@@ -6,6 +6,7 @@ import type {
 } from "../../../shared/types.js";
 import {
   bearingDegrees,
+  cardinalFromHeading,
   haversineMeters,
   relativeClockAndDirection,
 } from "../../../shared/geo.js";
@@ -42,8 +43,15 @@ export class ProactivityPacer {
     profile: UserCalibrationProfile;
     activeRoute: TourRoute | null;
     isGuideBusy: boolean;
+    tourAccepted?: boolean;
   }): PacerDecision {
     const { location, heartbeat, profile, activeRoute, isGuideBusy } = params;
+    const tourAccepted = params.tourAccepted !== false;
+    const awaitingTourYes =
+      profile.mode === "guided_tour" && Boolean(activeRoute) && !tourAccepted;
+    const routeStopIds = new Set(
+      activeRoute?.stops.map((stop) => stop.poi.osmId) ?? []
+    );
     if (!heartbeat) {
       return { type: "none", reason: "Waiting for initial spatial prefetch" };
     }
@@ -68,8 +76,9 @@ export class ProactivityPacer {
       ? Math.round((now - this.lingerStartAt) / 1000)
       : 0;
 
-    // 1. Guided Tour Mode Priority: Check arrival at current tour stop FIRST
-    if (profile.mode === "guided_tour" && activeRoute) {
+    // 1. Guided Tour Mode Priority: Check arrival at current tour stop FIRST.
+    // Skip this until the walker has accepted the route.
+    if (profile.mode === "guided_tour" && activeRoute && tourAccepted) {
       const currentStop = activeRoute.stops[activeRoute.currentStopIndex];
       if (currentStop && !currentStop.visited) {
         const distToStop = Math.round(
@@ -92,7 +101,7 @@ export class ProactivityPacer {
             type: "proactive_spoken_moment",
             poi: currentStop.poi,
             reason: `Arrived at Guided Stop #${currentStop.order}: ${currentStop.poi.name}`,
-            promptText: `The walker has just arrived right in front of Guided Tour Stop #${currentStop.order}, ${currentStop.poi.name} (${distToStop}m away at ${clockPosition}). Call highlight_on_map for "${currentStop.poi.name}" and share its sensory hook ("${currentStop.poi.sensoryHook}") and story ("${currentStop.poi.narrativeSummary}"), then ask "${currentStop.poi.followUpQuestion}"`,
+            promptText: `The walker has just arrived right in front of Guided Tour Stop #${currentStop.order}, ${currentStop.poi.name} (${distToStop}m away at ${clockPosition}). Call highlight_on_map for "${currentStop.poi.name}" and share its sensory hook ("${currentStop.poi.sensoryHook}") and story ("${currentStop.poi.narrativeSummary}"). End on the story. Do not add a question unless you truly need an answer.`,
           };
         }
       }
@@ -105,6 +114,7 @@ export class ProactivityPacer {
       haversineMeters(this.lastContextAnchor, location) >= 15;
 
     if (
+      !awaitingTourYes &&
       !isGuideBusy &&
       (profile.calibrated || hasActivelyMoved) &&
       profile.proactivity !== "on_demand"
@@ -138,6 +148,9 @@ export class ProactivityPacer {
           const isLingeringCurious = lingerSeconds >= 5 && closest.dist <= 70;
 
           if (isCloseArrival || isLingeringCurious) {
+            const onRoute = routeStopIds.has(closest.story.osmId);
+            const guidedAside =
+              profile.mode === "guided_tour" && activeRoute && !onRoute;
             this.lastSpokenTriggerAt = now;
             this.narratedPoiIds.add(closest.story.osmId);
 
@@ -151,11 +164,13 @@ export class ProactivityPacer {
               reason: isLingeringCurious
                 ? `Lingered ${lingerSeconds}s near ${closest.story.name}`
                 : `Walked within ${closest.dist}m of ${closest.story.name}`,
-              promptText: `The walker just walked up to ${closest.story.name} (${closest.dist}m ${closest.relativeDirection} at ${closest.clockPosition}). Call highlight_on_map for "${closest.story.name}", point out its sensory hook ("${closest.story.sensoryHook}"), share the story ("${closest.story.narrativeSummary}"), and ask "${closest.story.followUpQuestion}"${
-                altHook
-                  ? ` or tease ${altHook.topPoiName} (${altHook.relativeDirection})`
-                  : ""
-              }.`,
+              promptText: guidedAside
+                ? `The tour is already accepted. ${closest.story.name} is nearby but not a stop (${closest.dist}m ${closest.relativeDirection} at ${closest.clockPosition}). Add one short aside only, then return to the current stop: "By the way, the building ${closest.relativeDirection} is ${closest.story.name}." You may mention "${closest.story.sensoryHook}" in that same sentence. Do not make it a new destination, do not retell its full story, and do not ask to change the route.`
+                : `The walker just walked up to ${closest.story.name} (${closest.dist}m ${closest.relativeDirection} at ${closest.clockPosition}). Call highlight_on_map for "${closest.story.name}", point out its sensory hook ("${closest.story.sensoryHook}"), and share the story ("${closest.story.narrativeSummary}"). End on the story. Do not add a question unless you truly need an answer.${
+                    altHook
+                      ? ` You can mention ${altHook.topPoiName} (${altHook.relativeDirection}) only if it fits in the same breath.`
+                      : ""
+                  }`,
             };
           }
         }
@@ -197,13 +212,21 @@ export class ProactivityPacer {
         .map((s) => {
           const d = Math.round(haversineMeters(location, s));
           const b = Math.round(bearingDegrees(location, s));
-          const { relativeDirection, clockPosition } =
+          const { relativeDirection, clockPosition, angleDiff } =
             relativeClockAndDirection(location.headingDeg, b);
-          return { s, d, relativeDirection, clockPosition };
+          return { s, d, relativeDirection, clockPosition, angleDiff };
         })
         .sort((a, b) => a.d - b.d);
 
-      const topStories = sortedByProximity
+      const gazeHit = heartbeat.gazeCandidate;
+      const sightCue = gazeHit
+        ? ` Looking directly at: ${gazeHit.story.name} (${gazeHit.distanceMeters}m ahead, ${gazeHit.angleOffGazeDeg} deg off gaze ray: ${gazeHit.story.sensoryHook}).`
+        : "";
+
+      const nearby = awaitingTourYes
+        ? sortedByProximity.filter(({ s }) => routeStopIds.has(s.osmId))
+        : sortedByProximity;
+      const topStories = nearby
         .slice(0, 4)
         .map(
           ({ s, d, relativeDirection, clockPosition }) =>
@@ -227,10 +250,23 @@ export class ProactivityPacer {
             )}m away).`
           : "";
 
+      const cardinal = cardinalFromHeading(location.headingDeg);
+      const gazeNote =
+        location.headTrackingSource === "airpods"
+          ? ` (AirPods head gaze${
+              typeof location.headPitchDeg === "number" &&
+              location.headPitchDeg >= 15
+                ? ", tilting head up at upper facade/roofline"
+                : ""
+            })`
+          : "";
+
       return {
         type: "passive_context_update",
         reason: `Updated context (${movedMeters < 900 ? `moved ${movedMeters}m on ` : ""}${heartbeat.currentStreet})`,
-        contextText: `Walker moved to (${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}) on ${heartbeat.currentStreet} in ${heartbeat.neighborhood}, facing ${location.headingDeg} deg.${guidedStopInfo} Closest landmarks right now: ${topStories}`,
+        contextText: awaitingTourYes
+          ? `Walker is at (${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}) on ${heartbeat.currentStreet} in ${heartbeat.neighborhood}, facing ${cardinal} (${location.headingDeg} deg).${guidedStopInfo} The tour is proposed and not accepted yet. Talk only about the route. Do not mention nearby places that are not stops.`
+          : `Walker is at (${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}) on ${heartbeat.currentStreet} in ${heartbeat.neighborhood}, facing ${cardinal} (${location.headingDeg} deg)${gazeNote}.${sightCue}${guidedStopInfo} Closest landmarks right now: ${topStories}`,
       };
     }
 

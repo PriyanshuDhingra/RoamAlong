@@ -54,10 +54,12 @@ export const App: React.FC = () => {
     null
   );
   const [activeRoute, setActiveRoute] = useState<TourRoute | null>(null);
-  const [highlight, setHighlight] = useState<MapHighlightAction | null>(null);
+  const [highlights, setHighlights] = useState<MapHighlightAction[]>([]);
   const [walkPath, setWalkPath] = useState<GeoPoint[] | null>(null);
   const [walkRouteError, setWalkRouteError] = useState<string | null>(null);
   const lastWalkFetchRef = useRef<{ key: string; from: GeoPoint } | null>(null);
+  const lastHeartbeatAtRef = useRef(0);
+  const heartbeatInFlightRef = useRef(false);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [eventLogs, setEventLogs] = useState<ServerEvent[]>([]);
   const [micActive, setMicActive] = useState(false);
@@ -82,9 +84,18 @@ export const App: React.FC = () => {
   const heartbeatRef = useRef(heartbeat);
   heartbeatRef.current = heartbeat;
   const activeRouteRef = useRef(activeRoute);
-  activeRouteRef.current = activeRoute;
+  const tourAcceptedRef = useRef(false);
+  const routeProposedAtRef = useRef(0);
+
+  const publishRoute = (route: TourRoute | null) => {
+    activeRouteRef.current = route;
+    setActiveRoute(route);
+    tourAcceptedRef.current = false;
+    routeProposedAtRef.current = route ? Date.now() : 0;
+  };
 
   const setProfile = (next: UserCalibrationProfile) => {
+    profileRef.current = next;
     setProfileState(next);
     saveCalibrationProfileToStorage(next);
   };
@@ -100,8 +111,18 @@ export const App: React.FC = () => {
           getLatestHeartbeat: () => heartbeatRef.current,
           setLatestHeartbeat: (hb) => setHeartbeat(hb),
           getActiveRoute: () => activeRouteRef.current,
-          setActiveRoute: (r) => setActiveRoute(r),
-          onMapHighlight: (action) => setHighlight(action),
+          setActiveRoute: (r) => publishRoute(r),
+          onMapHighlight: (action, clearOthers = false) => {
+            setHighlights((prev) => {
+              const kept = clearOthers
+                ? []
+                : prev.filter(
+                    (item) =>
+                      (item.osmId || item.label) !== (action.osmId || action.label)
+                  );
+              return [...kept, action].slice(-6);
+            });
+          },
         },
         {
           onStateChange: () => forceRender((n) => n + 1),
@@ -113,6 +134,22 @@ export const App: React.FC = () => {
       ),
     []
   );
+
+  useEffect(() => {
+    if (!activeRoute || tourAcceptedRef.current) return;
+    const lastUser = [...transcript]
+      .reverse()
+      .find((item) => item.role === "user");
+    if (!lastUser || lastUser.timestamp <= routeProposedAtRef.current) return;
+    if (
+      !/\b(yes|yeah|yep|yup|sure|okay|ok|let's go|lets go|let us go|sounds good|sounds great|let's do it|lets do it|go for it)\b/i.test(
+        lastUser.text
+      )
+    ) {
+      return;
+    }
+    tourAcceptedRef.current = true;
+  }, [transcript, activeRoute]);
 
   // Subscribe to LocationManager updates & auto-enable Real Device GPS on mobile phones/tablets
   useEffect(() => {
@@ -132,8 +169,12 @@ export const App: React.FC = () => {
 
   // Trigger 4-Quadrant (N/S/E/W) Spatial Heartbeat & Read-the-Room ProactivityPacer on location change
   useEffect(() => {
-    let cancelled = false;
+    const since = Date.now() - lastHeartbeatAtRef.current;
+    const delay = heartbeatInFlightRef.current || since < 1000 ? 180 : 40;
     const timer = setTimeout(async () => {
+      if (heartbeatInFlightRef.current) return;
+      heartbeatInFlightRef.current = true;
+      lastHeartbeatAtRef.current = Date.now();
       try {
         const res = await fetch(`${apiBaseUrl}/api/spatial/heartbeat`, {
           method: "POST",
@@ -154,30 +195,9 @@ export const App: React.FC = () => {
             errJson.error || `Spatial heartbeat failed (HTTP ${res.status})`
           );
         }
-        if (cancelled) return;
         const data = (await res.json()) as SpatialHeartbeatResponse;
-        if (cancelled) return;
         setSpatialError(null);
         setHeartbeat(data);
-
-        // Always keep the spotlight card synced with the closest immediate landmark as the user moves
-        if (data.recommendedImmediatePoi) {
-          const poi = data.recommendedImmediatePoi;
-          setHighlight((prev) => {
-            if (prev?.osmId === poi.osmId) return prev;
-            return {
-              targetType: "building",
-              osmId: poi.osmId,
-              label: poi.name,
-              subtitle: poi.sensoryHook,
-              lat: poi.lat,
-              lon: poi.lon,
-              geometry: poi.geometry,
-              category: poi.categories[0],
-              timestamp: Date.now(),
-            };
-          });
-        }
 
         // Evaluate Read-the-Room ProactivityPacer
         const isGuideBusy =
@@ -191,6 +211,7 @@ export const App: React.FC = () => {
           profile: profileRef.current,
           activeRoute: activeRouteRef.current,
           isGuideBusy,
+          tourAccepted: tourAcceptedRef.current,
         });
 
         setPacerStatus(decision.reason);
@@ -200,32 +221,38 @@ export const App: React.FC = () => {
             rtClient.injectPassiveSpatialContext(decision.contextText);
           } else if (decision.type === "proactive_spoken_moment") {
             if (decision.poi) {
-              setHighlight({
-                targetType: "building",
-                osmId: decision.poi.osmId,
-                label: decision.poi.name,
-                subtitle: decision.poi.sensoryHook,
-                lat: decision.poi.lat,
-                lon: decision.poi.lon,
-                geometry: decision.poi.geometry,
-                category: decision.poi.categories[0],
-                timestamp: Date.now(),
+              const poi = decision.poi;
+              setHighlights((prev) => {
+                const action: MapHighlightAction = {
+                  targetType: "building",
+                  osmId: poi.osmId,
+                  label: poi.name,
+                  subtitle: poi.sensoryHook,
+                  lat: poi.lat,
+                  lon: poi.lon,
+                  geometry: poi.geometry,
+                  category: poi.categories[0],
+                  timestamp: Date.now(),
+                };
+                const kept = prev.filter(
+                  (item) => (item.osmId || item.label) !== (action.osmId || action.label)
+                );
+                return [...kept, action].slice(-6);
               });
             }
             rtClient.triggerProactiveMoment(decision.promptText);
           }
         }
       } catch (err) {
-        if (!cancelled) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setSpatialError(msg);
-          setPacerStatus(`Error: ${msg}`);
-        }
+        const msg = err instanceof Error ? err.message : String(err);
+        setSpatialError(msg);
+        setPacerStatus(`Error: ${msg}`);
+      } finally {
+        heartbeatInFlightRef.current = false;
       }
-    }, 180);
+    }, delay);
 
     return () => {
-      cancelled = true;
       clearTimeout(timer);
     };
   }, [
@@ -233,12 +260,9 @@ export const App: React.FC = () => {
     location.lon,
     location.headingDeg,
     location.speedMps,
-    profile.topics,
-    profile.story_style,
-    profile.mode,
   ]);
 
-  // Street-following walking route to the next spot: the current guided stop, otherwise the spotlighted place
+  // A walking line is the current guided stop. A nearby spotlight is not a destination.
   const currentGuidedStop =
     profile.mode === "guided_tour" && activeRoute
       ? activeRoute.stops[activeRoute.currentStopIndex]?.poi ?? null
@@ -249,12 +273,6 @@ export const App: React.FC = () => {
           key: `stop_${currentGuidedStop.osmId}`,
           lat: currentGuidedStop.lat,
           lon: currentGuidedStop.lon,
-        }
-      : highlight
-      ? {
-          key: `hl_${highlight.osmId ?? highlight.label}`,
-          lat: highlight.lat,
-          lon: highlight.lon,
         }
       : null;
 
@@ -311,6 +329,7 @@ export const App: React.FC = () => {
   }, [navTarget?.key, navTarget?.lat, navTarget?.lon, location.lat, location.lon]);
 
   const handleStartTour = async () => {
+    if (rtClient.state === "connecting") return;
     if (rtClient.state !== "open") {
       await rtClient.connect();
     }
@@ -350,7 +369,7 @@ export const App: React.FC = () => {
   };
 
   const handleSelectStoryOnMap = (story: StoryCard) => {
-    setHighlight({
+    const action: MapHighlightAction = {
       targetType: "building",
       osmId: story.osmId,
       label: story.name,
@@ -360,6 +379,12 @@ export const App: React.FC = () => {
       geometry: story.geometry,
       category: story.categories[0],
       timestamp: Date.now(),
+    };
+    setHighlights((prev) => {
+      const kept = prev.filter(
+        (item) => (item.osmId || item.label) !== (action.osmId || action.label)
+      );
+      return [...kept, action].slice(-6);
     });
     pacer.markNarrated(story.osmId);
 
@@ -373,15 +398,28 @@ export const App: React.FC = () => {
   };
 
   const handleSwitchMode = async (mode: TourMode) => {
+    const current = profileRef.current;
     const nextProfile: UserCalibrationProfile = {
-      ...profile,
+      ...current,
       mode,
       updatedAt: Date.now(),
     };
     setProfile(nextProfile);
 
     if (mode === "wandering") {
-      setActiveRoute(null);
+      publishRoute(null);
+      if (rtClient.state === "open") rtClient.sendSessionUpdate();
+      return;
+    }
+
+    if (!current.calibrated) {
+      publishRoute(null);
+      if (rtClient.state === "open") {
+        rtClient.sendSessionUpdate();
+        rtClient.injectPassiveSpatialContext(
+          "[TOUR_MODE] The user selected Tours. They have not shared preferences yet. Finish calibration and save the profile. The route is created only after that. Do not name stops yet."
+        );
+      }
       return;
     }
 
@@ -398,10 +436,12 @@ export const App: React.FC = () => {
     });
     if (res.ok) {
       const route = (await res.json()) as TourRoute;
-      setActiveRoute(route);
+      publishRoute(route);
       if (rtClient.state === "open") {
+        rtClient.sendSessionUpdate();
+        const stopList = route.stops.map((stop) => stop.poi.name).join(", ");
         rtClient.sendUserText(
-          `I just switched to Guided Tour Mode for "${route.title}". Guide me to Stop 1 (${route.stops[0]?.poi.name})!`,
+          `I switched to Tours. The route "${route.title}" is ready: ${stopList}. About ${route.estimatedDurationMinutes} minutes. Review that tour once and ask if it sounds good. After I agree, guide me to the first stop and do not ask again.`,
           false,
           true
         );
@@ -444,6 +484,7 @@ export const App: React.FC = () => {
             ...route,
             currentStopIndex: route.currentStopIndex + 1,
           };
+          activeRouteRef.current = updatedRoute;
           setActiveRoute(updatedRoute);
         }
         return;
@@ -506,7 +547,7 @@ export const App: React.FC = () => {
       <MinimalMap
         location={location}
         heartbeat={heartbeat}
-        highlight={highlight}
+        highlights={highlights}
         activeRoute={activeRoute}
         walkPath={walkPath}
         showQuadrantOverlay={showQuadrantOverlay}
@@ -526,7 +567,7 @@ export const App: React.FC = () => {
         location={location}
         heartbeat={heartbeat}
         activeRoute={activeRoute}
-        highlight={highlight}
+        highlight={highlights[highlights.length - 1] ?? null}
         notice={spatialError || walkRouteError || (showSystemNotice ? latestSystemNotice?.text ?? null : null)}
         settingsOpen={settingsOpen}
         debugMode={debugMode}
@@ -564,7 +605,10 @@ export const App: React.FC = () => {
           locationManager.enableDeviceGps(location.source !== "device_gps")
         }
         onToggleDebug={() => {
-          setDebugMode((on) => !on);
+          setDebugMode((on) => {
+            if (on) locationManager.stopAnalogMove();
+            return !on;
+          });
           setDebugOpen(false);
           setProtocolDrawerOpen(false);
         }}
@@ -582,6 +626,10 @@ export const App: React.FC = () => {
           else locationManager.startAutoWalk(activeRouteRef.current?.polyline);
           forceRender((n) => n + 1);
         }}
+        onAnalogMove={(heading, speed) =>
+          locationManager.setAnalogMove(heading, speed)
+        }
+        onAnalogRelease={() => locationManager.stopAnalogMove()}
       />
     </div>
   );

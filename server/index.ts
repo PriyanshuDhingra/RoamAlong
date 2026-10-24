@@ -24,11 +24,22 @@ import {
 import { fetchWikipediaSummaryByTag } from "./research/wikipediaClient.js";
 import { runOnDemandPlaceResearch } from "./research/onDemandResearch.js";
 import { getCacheStats } from "./cache/persistentStore.js";
+import { getToolFiller } from "./voiceFiller.js";
 
 export function createApp() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+
+  app.get("/api/voice/filler", async (req, res) => {
+    const voice = typeof req.query.voice === "string" ? req.query.voice : "mia";
+    const filler = await getToolFiller(voice);
+    if (!filler) {
+      res.status(503).json({ error: "Filler unavailable" });
+      return;
+    }
+    res.json(filler);
+  });
 
   // 1. Ephemeral Boson Realtime Token Endpoint
   app.get("/api/token", async (_req, res) => {

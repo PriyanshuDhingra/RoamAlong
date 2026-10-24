@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Handheld — Boson Realtime Self-Guided Audio Tours</title>
     <style>
       * {
@@ -79,7 +79,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: calc(6px + env(safe-area-inset-top)) 16px 0;
+        padding: max(58px, calc(12px + env(safe-area-inset-top))) 16px 0;
         pointer-events: none;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
@@ -149,14 +149,53 @@
         z-index: 1100;
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding: 8px 20px calc(12px + env(safe-area-inset-bottom));
+        padding: 4px 20px calc(12px + env(safe-area-inset-bottom));
         border-top-left-radius: 28px;
         border-top-right-radius: 28px;
         background: #fff;
         color: #222;
         box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.14);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transition: padding 200ms ease;
+      }
+      .wg-sheet.is-collapsed {
+        padding-bottom: calc(6px + env(safe-area-inset-bottom));
+      }
+      .wg-grabber-hit {
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        touch-action: none;
+      }
+      .wg-grabber-hit:focus-visible {
+        outline: 2px solid #111;
+        outline-offset: -6px;
+        border-radius: 16px;
+      }
+      .wg-sheet-body {
+        display: grid;
+        grid-template-rows: 1fr;
+        opacity: 1;
+        transition: grid-template-rows 220ms ease, opacity 160ms ease;
+      }
+      .wg-sheet.is-collapsed .wg-sheet-body {
+        grid-template-rows: 0fr;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .wg-sheet-inner {
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
       }
       .wg-grabber {
         align-self: center;
@@ -177,14 +216,14 @@
       }
       .wg-caption-text {
         margin: 0;
+        max-height: 66px;
+        overflow-y: auto;
         font-size: 16px;
         line-height: 22px;
         color: #222;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
+        scrollbar-width: none;
       }
+      .wg-caption-text::-webkit-scrollbar { display: none; }
       .wg-kicker {
         font-size: 11px;
         font-weight: 800;
@@ -343,7 +382,7 @@
       .wg-debug {
         position: fixed;
         left: 16px;
-        top: calc(70px + env(safe-area-inset-top));
+        top: max(116px, calc(70px + env(safe-area-inset-top)));
         z-index: 1200;
         display: flex;
         gap: 8px;
@@ -351,7 +390,7 @@
       .wg-log {
         position: fixed;
         left: 16px;
-        top: calc(116px + env(safe-area-inset-top));
+        top: max(162px, calc(116px + env(safe-area-inset-top)));
         z-index: 1200;
         width: 280px;
         max-height: 220px;
@@ -363,6 +402,71 @@
         font-size: 12px;
         line-height: 18px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      }
+      .wg-joystick {
+        position: fixed;
+        left: 16px;
+        bottom: calc(236px + env(safe-area-inset-bottom));
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        pointer-events: none;
+        transition: bottom 220ms ease;
+      }
+      .wg-joystick.low {
+        bottom: calc(72px + env(safe-area-inset-bottom));
+      }
+      .wg-joy-pad {
+        position: relative;
+        width: 112px;
+        height: 112px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.96);
+        border: 2px solid #111111;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+        touch-action: none;
+        pointer-events: auto;
+        cursor: grab;
+      }
+      .wg-joy-pad.on {
+        cursor: grabbing;
+        border-color: #FF385C;
+      }
+      .wg-joy-n {
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        color: #B0B0B0;
+        pointer-events: none;
+      }
+      .wg-joy-knob {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: #111111;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        pointer-events: none;
+      }
+      .wg-joy-pad.on .wg-joy-knob { background: #FF385C; }
+      .wg-joy-meta {
+        min-width: 112px;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #222;
+        background: rgba(255, 255, 255, 0.92);
+        border-radius: 999px;
+        padding: 4px 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       }
       @keyframes user-loc-pulse {
         0% {

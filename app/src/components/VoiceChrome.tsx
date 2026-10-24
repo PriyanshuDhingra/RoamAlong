@@ -24,6 +24,7 @@ import type {
 } from "../../../shared/types.js";
 import type { LocationSnapshot } from "../location/LocationManager.js";
 import { DebugLocationDrawer } from "./DebugLocationDrawer.js";
+import { DebugJoystick } from "./DebugJoystick.js";
 
 const TOPICS: TourTopic[] = [
   "history",
@@ -89,12 +90,18 @@ export interface VoiceChromeProps {
   onHeading: (deg: number) => void;
   onSpeed: (mps: number) => void;
   onToggleAutoWalk: () => void;
+  onAnalogMove: (headingDeg: number, speedMps: number) => void;
+  onAnalogRelease: () => void;
   transcript: TranscriptItem[];
 }
 
 export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const captionRef = useRef<HTMLParagraphElement>(null);
+  const grabStartRef = useRef<{ y: number } | null>(null);
+  const suppressGrabClickRef = useRef(false);
   const [hiddenCard, setHiddenCard] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(true);
   const live = props.connection === "open";
   const connecting = props.connection === "connecting";
   const speaking =
@@ -121,6 +128,12 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
         ? "listening"
         : "muted"
     : "offline";
+
+  useEffect(() => {
+    const el = captionRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [lastLine?.text]);
 
   useEffect(() => {
     if (!props.settingsOpen) return;
@@ -164,15 +177,52 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
         </button>
       </div>
 
-      <div className="wg-sheet">
-        <div className="wg-grabber" />
+      <div className={`wg-sheet${sheetOpen ? "" : " is-collapsed"}`}>
+        <button
+          type="button"
+          className="wg-grabber-hit"
+          aria-expanded={sheetOpen}
+          aria-controls="wg-sheet-body"
+          aria-label={sheetOpen ? "Collapse guide" : "Expand guide"}
+          onPointerDown={(event) => {
+            grabStartRef.current = { y: event.clientY };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerUp={(event) => {
+            const start = grabStartRef.current;
+            grabStartRef.current = null;
+            if (!start) return;
+            const dy = event.clientY - start.y;
+            if (dy > 28) {
+              setSheetOpen(false);
+              suppressGrabClickRef.current = true;
+            } else if (dy < -28) {
+              setSheetOpen(true);
+              suppressGrabClickRef.current = true;
+            }
+          }}
+          onClick={() => {
+            if (suppressGrabClickRef.current) {
+              suppressGrabClickRef.current = false;
+              return;
+            }
+            setSheetOpen((open) => !open);
+          }}
+        >
+          <span className="wg-grabber" />
+        </button>
+        <div
+          id="wg-sheet-body"
+          className="wg-sheet-body"
+          inert={sheetOpen ? undefined : true}
+          aria-hidden={sheetOpen ? undefined : true}
+        >
+          <div className="wg-sheet-inner">
         {props.notice ? (
           <p role="alert" className="wg-notice">
             {props.notice}
           </p>
         ) : null}
-
-        {guided && !route ? <p className="wg-hint">Loading tours…</p> : null}
 
         {route && stop ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -251,7 +301,11 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
           <div className="wg-caption">
             <div className="wg-state">{stateLabel}</div>
             {lastLine ? (
-              <p className="wg-caption-text" style={{ opacity: lastLine.status === "in_progress" ? 0.75 : 1 }}>
+              <p
+                ref={captionRef}
+                className="wg-caption-text"
+                style={{ opacity: lastLine.status === "in_progress" ? 0.75 : 1 }}
+              >
                 {lastLine.text}
               </p>
             ) : null}
@@ -278,6 +332,8 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
             </span>
             <span className="wg-side-label">Me</span>
           </button>
+        </div>
+          </div>
         </div>
       </div>
 
@@ -371,6 +427,20 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
         </div>
       ) : null}
 
+      {props.debugMode && !props.eventsOpen ? (
+        <HeadOrientationReadout location={props.location} />
+      ) : null}
+
+      {props.debugMode ? (
+        <DebugJoystick
+          headingDeg={props.location.headingDeg}
+          speedMps={props.location.speedMps}
+          low={!sheetOpen}
+          onMove={props.onAnalogMove}
+          onRelease={props.onAnalogRelease}
+        />
+      ) : null}
+
       {props.debugMode ? (
         <DebugLocationDrawer
           isOpen={props.debugOpen}
@@ -405,6 +475,56 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
     </>
   );
 };
+
+function describeHeadStatus(status?: string): string {
+  if (!status) return "No status from the iPhone app (running in a browser?)";
+  if (status === "module_missing") return "AirPods module is not in this build (Expo Go or old build)";
+  if (status === "unsupported") return "This iPhone reports headphone motion unavailable";
+  if (status === "started") return "Tracking started. Put in AirPods Pro, Max, 3 or 4";
+  if (status === "not_started") return "Tracking has not started yet";
+  return `Tracking failed: ${status}`;
+}
+
+function HeadOrientationReadout({ location }: { location: LocationSnapshot }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, []);
+
+  const ageMs = location.headUpdatedAt ? now - location.headUpdatedAt : null;
+  const live = ageMs !== null && ageMs < 1500;
+  const yaw = location.headYawDeg ?? 0;
+  const pitch = location.headPitchDeg ?? 0;
+  const roll = location.headRollDeg ?? 0;
+
+  return (
+    <div className="wg-log" aria-label="AirPods orientation">
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <svg width="56" height="56" viewBox="-28 -28 56 56" aria-hidden="true">
+          <circle r="26" fill="#F4F4F4" stroke="#EBEBEB" />
+          <g transform={`rotate(${yaw})`}>
+            <path d="M0 -22 L6 -8 L-6 -8 Z" fill={live ? "#FF385C" : "#B0B0B0"} />
+            <line x1="0" y1="-8" x2="0" y2="10" stroke={live ? "#FF385C" : "#B0B0B0"} strokeWidth="2" />
+          </g>
+          <circle r="3" fill="#222" />
+        </svg>
+        <div style={{ fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ fontWeight: 700 }}>
+            AirPods {live ? "live" : location.headUpdatedAt ? `stale ${Math.round((ageMs ?? 0) / 1000)}s` : "no data"}
+          </div>
+          {!live ? (
+            <div style={{ color: "#6A6A6A" }}>{describeHeadStatus(location.headTrackingStatus)}</div>
+          ) : null}
+          <div>Yaw {yaw}°</div>
+          <div>Pitch {pitch}°{pitch >= 15 ? " (looking up)" : pitch <= -15 ? " (looking down)" : ""}</div>
+          <div>Roll {roll}°</div>
+          <div>Gaze heading {location.headingDeg}°</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function TalkButton({
   live,

@@ -14,8 +14,9 @@ export function loadSavedCalibrationProfile(): UserCalibrationProfile {
         return {
           ...DEFAULT_CALIBRATION_PROFILE,
           ...parsed,
-          // Always start each new session in Calibration Mode so the voice guide asks how to personalize this walk
+          // Each visit starts in Wander, uncalibrated. A saved guided mode has no route yet.
           calibrated: false,
+          mode: "wandering",
         };
       }
     }

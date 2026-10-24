@@ -123,8 +123,16 @@ export interface SpatialHeartbeatResponse {
   currentStreet: string;
   city: string;
   countryCode: string;
+  headingDeg?: number;
+  headingCardinal?: string;
   sectors: Record<QuadrantSector, DirectionalSectorCache>;
   recommendedImmediatePoi?: StoryCard;
+  gazeCandidate?: {
+    story: StoryCard;
+    distanceMeters: number;
+    angleOffGazeDeg: number;
+    clockPosition: string;
+  };
   directionHooks: {
     sector: QuadrantSector;
     relativeDirection: string;

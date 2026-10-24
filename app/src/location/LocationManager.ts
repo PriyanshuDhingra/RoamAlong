@@ -9,6 +9,12 @@ export interface LocationSnapshot {
   lat: number;
   lon: number;
   headingDeg: number;
+  headPitchDeg?: number;
+  headYawDeg?: number;
+  headRollDeg?: number;
+  headUpdatedAt?: number;
+  headTrackingSource?: "airpods" | "compass";
+  headTrackingStatus?: string;
   speedMps: number;
   source: "simulated" | "device_gps";
   timestamp: number;
@@ -81,6 +87,9 @@ export class LocationManager {
   private autoWalkTimer: ReturnType<typeof setInterval> | null = null;
   private autoWalkWaypoints: GeoPoint[] = [];
   private autoWalkIdx = 0;
+  private analogTimer: ReturnType<typeof setInterval> | null = null;
+  private analogHeadingDeg = 0;
+  private analogSpeedMps = 0;
 
   constructor() {
     this.setupExpoNativeBridgeListener();
@@ -102,10 +111,45 @@ export class LocationManager {
           lat?: number;
           lon?: number;
           headingDeg?: number;
+          headPitchDeg?: number;
+          headYawDeg?: number;
+          headRollDeg?: number;
+          headTrackingSource?: "airpods" | "compass";
+          headTrackingStatus?: string;
           speedMps?: number;
         };
         if (
+          msg.type === "EXPO_HEAD_TRACKING" &&
+          typeof msg.headingDeg === "number" &&
+          !Number.isNaN(msg.headingDeg)
+        ) {
+          this.snapshot = {
+            ...this.snapshot,
+            headingDeg: this.isAnalogWalking()
+              ? this.snapshot.headingDeg
+              : ((Math.round(msg.headingDeg) % 360) + 360) % 360,
+            headPitchDeg:
+              typeof msg.headPitchDeg === "number"
+                ? Math.round(msg.headPitchDeg)
+                : this.snapshot.headPitchDeg,
+            headYawDeg:
+              typeof msg.headYawDeg === "number"
+                ? Math.round(msg.headYawDeg)
+                : this.snapshot.headYawDeg,
+            headRollDeg:
+              typeof msg.headRollDeg === "number"
+                ? Math.round(msg.headRollDeg)
+                : this.snapshot.headRollDeg,
+            headUpdatedAt: Date.now(),
+            headTrackingSource: msg.headTrackingSource || "airpods",
+            timestamp: Date.now(),
+          };
+          this.emit();
+          return;
+        }
+        if (
           msg.type === "EXPO_NATIVE_LOCATION" &&
+          this.snapshot.source !== "simulated" &&
           typeof msg.lat === "number" &&
           typeof msg.lon === "number"
         ) {
@@ -117,6 +161,14 @@ export class LocationManager {
               typeof msg.headingDeg === "number" && !Number.isNaN(msg.headingDeg)
                 ? ((Math.round(msg.headingDeg) % 360) + 360) % 360
                 : this.snapshot.headingDeg,
+            headPitchDeg:
+              typeof msg.headPitchDeg === "number"
+                ? Math.round(msg.headPitchDeg)
+                : this.snapshot.headPitchDeg,
+            headTrackingSource:
+              msg.headTrackingSource || this.snapshot.headTrackingSource,
+            headTrackingStatus:
+              msg.headTrackingStatus || this.snapshot.headTrackingStatus,
             speedMps:
               typeof msg.speedMps === "number" && !Number.isNaN(msg.speedMps)
                 ? Number(msg.speedMps.toFixed(2))
@@ -153,6 +205,7 @@ export class LocationManager {
    * Teleports immediately to a target coordinate (used by tap-on-map or city presets).
    */
   teleport(lat: number, lon: number, headingDeg?: number): void {
+    this.stopAnalogMove();
     this.stopAutoWalk();
     this.snapshot = {
       lat: Number(lat.toFixed(6)),
@@ -169,9 +222,72 @@ export class LocationManager {
   }
 
   /**
+   * Analog joystick: walk continuously at `speedMps` along `headingDeg`.
+   * Speed 0 stops. Switches to simulated GPS so the phone does not snap back.
+   */
+  setAnalogMove(headingDeg: number, speedMps: number): void {
+    const speed = Number(Math.max(0, Math.min(12, speedMps)).toFixed(2));
+    this.analogHeadingDeg = ((headingDeg % 360) + 360) % 360;
+    this.analogSpeedMps = speed;
+    if (speed < 0.05) {
+      this.stopAnalogMove();
+      return;
+    }
+    this.detachDeviceGps();
+    this.stopAutoWalk();
+    if (this.analogTimer) return;
+    const dtSec = 0.08;
+    const tick = () => {
+      if (this.analogSpeedMps < 0.05) {
+        this.stopAnalogMove();
+        return;
+      }
+      const nextPt = movePointByMeters(
+        { lat: this.snapshot.lat, lon: this.snapshot.lon },
+        this.analogHeadingDeg,
+        this.analogSpeedMps * dtSec
+      );
+      this.snapshot = {
+        ...this.snapshot,
+        lat: nextPt.lat,
+        lon: nextPt.lon,
+        headingDeg: Math.round(this.analogHeadingDeg),
+        speedMps: this.analogSpeedMps,
+        source: "simulated",
+        timestamp: Date.now(),
+      };
+      this.emit();
+    };
+    tick();
+    this.analogTimer = setInterval(tick, dtSec * 1000);
+  }
+
+  stopAnalogMove(): void {
+    if (this.analogTimer) {
+      clearInterval(this.analogTimer);
+      this.analogTimer = null;
+    }
+    if (this.analogSpeedMps !== 0 || this.snapshot.speedMps > 0) {
+      this.analogSpeedMps = 0;
+      this.snapshot = {
+        ...this.snapshot,
+        speedMps: 0,
+        source: "simulated",
+        timestamp: Date.now(),
+      };
+      this.emit();
+    }
+  }
+
+  isAnalogWalking(): boolean {
+    return this.analogTimer !== null;
+  }
+
+  /**
    * Steps the simulated walker in `headingDeg` by `stepMeters`.
    */
   stepDirection(headingDeg: number, stepMeters = 20): void {
+    this.stopAnalogMove();
     const nextPt = movePointByMeters(
       { lat: this.snapshot.lat, lon: this.snapshot.lon },
       headingDeg,
@@ -197,6 +313,7 @@ export class LocationManager {
     target: GeoPoint,
     stepMeters = 20
   ): { distanceRemainingMeters: number; bearingDeg: number } {
+    this.stopAnalogMove();
     const current: GeoPoint = {
       lat: this.snapshot.lat,
       lon: this.snapshot.lon,
@@ -253,6 +370,7 @@ export class LocationManager {
    * Starts continuous simulated walking either along a Guided Tour route or forward along current heading.
    */
   startAutoWalk(waypoints?: GeoPoint[]): void {
+    this.stopAnalogMove();
     this.stopAutoWalk();
     this.autoWalkWaypoints = waypoints && waypoints.length > 0 ? waypoints : [];
     this.autoWalkIdx = 0;
@@ -307,28 +425,35 @@ export class LocationManager {
     return this.autoWalkTimer !== null;
   }
 
-  /**
-   * Switches between simulated GPS and real device geolocation.
-   */
-  enableDeviceGps(enable: boolean): void {
-    if (!enable) {
-      if (
-        this.watchId !== null &&
-        typeof navigator !== "undefined" &&
-        navigator.geolocation
-      ) {
-        navigator.geolocation.clearWatch(this.watchId);
-        this.watchId = null;
-      }
+  private detachDeviceGps(): void {
+    if (
+      this.watchId !== null &&
+      typeof navigator !== "undefined" &&
+      navigator.geolocation
+    ) {
+      navigator.geolocation.clearWatch(this.watchId);
+      this.watchId = null;
+    }
+    if (this.snapshot.source !== "simulated") {
       this.snapshot = {
         ...this.snapshot,
         source: "simulated",
         timestamp: Date.now(),
       };
       this.emit();
+    }
+  }
+
+  /**
+   * Switches between simulated GPS and real device geolocation.
+   */
+  enableDeviceGps(enable: boolean): void {
+    if (!enable) {
+      this.detachDeviceGps();
       return;
     }
 
+    this.stopAnalogMove();
     this.stopAutoWalk();
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       this.watchId = navigator.geolocation.watchPosition(

@@ -60,6 +60,56 @@ export function classifySector(
   return { distanceMeters, bearingDeg, sector: "WEST" };
 }
 
+export function cardinalFromHeading(headingDeg: number): string {
+  const dirs = [
+    "north",
+    "northeast",
+    "east",
+    "southeast",
+    "south",
+    "southwest",
+    "west",
+    "northwest",
+  ];
+  const idx = Math.round((((headingDeg % 360) + 360) % 360) / 45) % 8;
+  return dirs[idx];
+}
+
+export function angularSpanOffHeading(
+  origin: GeoPoint,
+  headingDeg: number,
+  target: GeoPoint,
+  geometry?: GeoPoint[]
+): { minAbsAngleDeg: number; signedAngleDeg: number } {
+  const centerBearing = bearingDegrees(origin, target);
+  const centerDiff = ((centerBearing - headingDeg + 540) % 360) - 180;
+  if (!geometry || geometry.length < 3) {
+    return { minAbsAngleDeg: Math.abs(centerDiff), signedAngleDeg: centerDiff };
+  }
+
+  let minDiff = centerDiff;
+  let maxDiff = centerDiff;
+  let bestAbs = Math.abs(centerDiff);
+  let bestSigned = centerDiff;
+
+  for (const pt of geometry) {
+    const b = bearingDegrees(origin, pt);
+    const diff = ((b - headingDeg + 540) % 360) - 180;
+    if (diff < minDiff) minDiff = diff;
+    if (diff > maxDiff) maxDiff = diff;
+    if (Math.abs(diff) < bestAbs) {
+      bestAbs = Math.abs(diff);
+      bestSigned = diff;
+    }
+  }
+
+  // If the building polygon straddles 0° (left vertex negative, right vertex positive) and isn't wrapping behind the user, the gaze ray hits the facade directly!
+  if (minDiff <= 0 && maxDiff >= 0 && maxDiff - minDiff < 180) {
+    return { minAbsAngleDeg: 0, signedAngleDeg: 0 };
+  }
+  return { minAbsAngleDeg: bestAbs, signedAngleDeg: bestSigned };
+}
+
 export function relativeClockAndDirection(
   userHeadingDeg: number,
   targetBearingDeg: number

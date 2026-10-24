@@ -15,7 +15,7 @@ import type { LocationSnapshot } from "../location/LocationManager.js";
 export interface MinimalMapProps {
   location: LocationSnapshot;
   heartbeat: SpatialHeartbeatResponse | null;
-  highlight: MapHighlightAction | null;
+  highlights: MapHighlightAction[];
   activeRoute: TourRoute | null;
   walkPath: GeoPoint[] | null;
   showQuadrantOverlay: boolean;
@@ -113,7 +113,7 @@ function ensureClosedLonLatRing(geometry: GeoPoint[]): [number, number][] {
 export const MinimalMap: React.FC<MinimalMapProps> = ({
   location,
   heartbeat,
-  highlight,
+  highlights,
   activeRoute,
   walkPath,
   showQuadrantOverlay,
@@ -128,6 +128,7 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
   const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
   const lastHighlightKeyRef = useRef<string>("");
   const followPausedUntilRef = useRef(0);
+  const lastFollowAtRef = useRef(0);
   const syncRef = useRef<() => void>(() => {});
 
   const onMapClickRef = useRef(onMapClickTeleport);
@@ -300,24 +301,20 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
       "spotlight-3d-source"
     ) as maplibregl.GeoJSONSource | undefined;
 
-    if (highlight) {
-      const footprint = footprintForHighlight(highlight);
-      spotlight3dSource?.setData({
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            properties: { name: highlight.label, height_m: footprint.heightM },
-            geometry: {
-              type: "Polygon",
-              coordinates: [footprint.ring],
-            },
+    spotlight3dSource?.setData({
+      type: "FeatureCollection",
+      features: highlights.map((item) => {
+        const footprint = footprintForHighlight(item);
+        return {
+          type: "Feature" as const,
+          properties: { name: item.label, height_m: footprint.heightM },
+          geometry: {
+            type: "Polygon" as const,
+            coordinates: [footprint.ring],
           },
-        ],
-      });
-    } else {
-      spotlight3dSource?.setData({ type: "FeatureCollection", features: [] });
-    }
+        };
+      }),
+    });
 
     // D. Update Guided Tour Route Polyline & Stop Badges
     const routeSource = map.getSource(
@@ -410,17 +407,18 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
 
-    const highlightKey = highlight
-      ? `${highlight.osmId || highlight.label}_${highlight.lat.toFixed(5)}`
-      : "";
+    const highlightKey = highlights
+      .map((item) => item.osmId || item.label)
+      .join("|");
 
-    if (highlight && highlightKey !== lastHighlightKeyRef.current) {
+    if (highlights.length > 0 && highlightKey !== lastHighlightKeyRef.current) {
       lastHighlightKeyRef.current = highlightKey;
       followPausedUntilRef.current = Date.now() + 15000;
       const bounds = new maplibregl.LngLatBounds(
         [location.lon, location.lat],
-        [highlight.lon, highlight.lat]
+        [location.lon, location.lat]
       );
+      for (const item of highlights) bounds.extend([item.lon, item.lat]);
       map.fitBounds(bounds, {
         padding: { top: 130, bottom: 300, left: 40, right: 40 },
         pitch: 45,
@@ -429,20 +427,27 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
         maxZoom: 17,
       });
     } else if (Date.now() > followPausedUntilRef.current) {
-      map.easeTo({
-        center: [location.lon, location.lat],
-        zoom: 16.6,
-        pitch: 45,
-        bearing: 0,
-        padding: { top: 80, bottom: 280, left: 24, right: 24 },
-        duration: 400,
-      });
+      const now = Date.now();
+      const rapid = now - lastFollowAtRef.current < 220;
+      lastFollowAtRef.current = now;
+      if (rapid) {
+        map.setCenter([location.lon, location.lat]);
+      } else {
+        map.easeTo({
+          center: [location.lon, location.lat],
+          zoom: 16.6,
+          pitch: 45,
+          bearing: 0,
+          padding: { top: 80, bottom: 280, left: 24, right: 24 },
+          duration: 400,
+        });
+      }
     }
   }, [
     location.lat,
     location.lon,
     location.headingDeg,
-    highlight,
+    highlights,
     activeRoute,
     walkPath,
     heartbeat,
