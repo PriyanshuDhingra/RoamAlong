@@ -17,14 +17,21 @@ export function BottomPanel({ t, bottomInset, onRecenter }: Props) {
   const tour = useWander((s) => s.tour);
   const card = useWander((s) => s.card);
   const set = useWander((s) => s.set);
+  const picking = mode === 'tour' && !tour; // the tour picker gets the whole sheet
 
   return (
     <View style={[styles.sheet, { backgroundColor: t.panel, paddingBottom: bottomInset + 12 }, shadow(t, 18)]}>
       <View style={[styles.grabber, { backgroundColor: t.line }]} />
       {mode === 'tour' && !tour ? <TourPicker t={t} /> : null}
       {mode === 'tour' && tour ? <TourProgress t={t} /> : null}
-      {card ? <PlaceCard card={card} t={t} onClose={() => set({ card: null, selectedId: null })} /> : null}
-      <Caption t={t} />
+      {picking ? null : (
+        <>
+          {card && card.entity_id !== tour?.stops[tour.current]?.entity_id ? ( // the tour row already shows the stop
+            <PlaceCard card={card} t={t} onClose={() => set({ card: null, selectedId: null })} />
+          ) : null}
+          <Caption t={t} />
+        </>
+      )}
       <Controls t={t} onRecenter={onRecenter} />
     </View>
   );

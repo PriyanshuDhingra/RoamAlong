@@ -14,6 +14,7 @@ export class GuideClient {
   private closedByUser = false;
   private retry = 0;
   private placeCache = new Map<string, GeoJSON.Feature>();
+  private outbox: UplinkMessage[] = []; // sent while the socket was still opening (e.g. "Start tour" while offline)
 
   constructor() {
     this.audio = new AudioEngine(
@@ -40,6 +41,7 @@ export class GuideClient {
                   debug: true });
       useWander.getState().set({ connection: 'live' });
       this.sendFix();
+      for (const m of this.outbox.splice(0)) this.send(m);
     };
     ws.onmessage = (e) => {
       if (typeof e.data === 'string') this.onJson(JSON.parse(e.data) as DownlinkMessage);
@@ -73,6 +75,9 @@ export class GuideClient {
 
   send(msg: UplinkMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+    else if (this.ws?.readyState === WebSocket.CONNECTING && msg.type !== 'location' && msg.type !== 'playback') {
+      this.outbox.push(msg);
+    }
   }
 
   sendFix(): void {
@@ -154,7 +159,8 @@ export class GuideClient {
     const s = useWander.getState();
     switch (m.type) {
       case 'state':
-        s.set({ guideState: m.guide_state, language: m.language, proactivity: m.proactivity, mode: m.mode });
+        // the Wander | Tours tab is the user's choice; only `tour` messages switch it (to show a running tour)
+        s.set({ guideState: m.guide_state, language: m.language, proactivity: m.proactivity });
         break;
       case 'stop_playback':
         this.audio.flush();
