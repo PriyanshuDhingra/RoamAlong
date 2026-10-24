@@ -85,6 +85,7 @@ export const App: React.FC = () => {
   const heartbeatRef = useRef(heartbeat);
   heartbeatRef.current = heartbeat;
   const activeRouteRef = useRef(activeRoute);
+  const handleStartTourRef = useRef<() => Promise<void>>(async () => {});
   const tourAcceptedRef = useRef(false);
   const routeProposedAtRef = useRef(0);
 
@@ -180,6 +181,60 @@ export const App: React.FC = () => {
 
     return unsub;
   }, [locationManager]);
+
+  // Desktop demo page (DemoShell) runs this app in an iframe and drives it with postMessage.
+  useEffect(() => {
+    if (window.parent === window) return;
+    const onMessage = async (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return;
+      const msg = ev.data as { type?: string; action?: string; text?: string; speed?: number };
+      if (msg?.type !== "ROAMALONG_DEMO") return;
+      switch (msg.action) {
+        case "start":
+          await handleStartTourRef.current();
+          break;
+        case "say":
+          if (!msg.text) return;
+          if (rtClient.state !== "open") await handleStartTourRef.current();
+          rtClient.sendUserText(msg.text, false, true);
+          break;
+        case "autowalk":
+          if (locationManager.isAutoWalking()) locationManager.stopAutoWalk();
+          else {
+            locationManager.setSpeed(msg.speed ?? 1.4);
+            locationManager.startAutoWalk(activeRouteRef.current?.polyline);
+          }
+          break;
+        case "gps":
+          locationManager.enableDeviceGps(true);
+          break;
+        case "reset_location":
+          locationManager.stopAutoWalk();
+          locationManager.teleport(43.6595, -79.3912, 0);
+          break;
+      }
+      forceRender((n) => n + 1);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [locationManager, rtClient]);
+
+  useEffect(() => {
+    if (window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "ROAMALONG_STATE",
+        connection: rtClient.state,
+        activity: rtClient.activity,
+        mode: profile.mode,
+        calibrated: profile.calibrated,
+        stops: activeRoute?.stops.length ?? 0,
+        autoWalking: locationManager.isAutoWalking(),
+        gps: location.source === "device_gps",
+      },
+      window.location.origin
+    );
+  });
 
   useEffect(() => {
     if (!debugMode) return;
@@ -358,6 +413,8 @@ export const App: React.FC = () => {
       setMicActive(false);
     }
   };
+
+  handleStartTourRef.current = handleStartTour;
 
   const handleToggleConnect = async () => {
     if (rtClient.state === "open" || rtClient.state === "connecting") {
