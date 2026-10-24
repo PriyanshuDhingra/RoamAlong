@@ -197,11 +197,16 @@ export async function synthesizeSectorStories(
   return { stories, synthesizedBy: "azure_openai" };
 }
 
+const MAX_POIS_PER_SECTOR = 5;
+const SECTOR_TIMEOUT_MS = 30000;
+
 async function callAzureOpenAiSectorAgent(
   azure: ReturnType<typeof getAzureConfig>,
   input: SectorSynthesisInput
 ): Promise<StoryCard[]> {
-  const topPois = input.pois.slice(0, 8).map((p) => ({
+  // 5 POIs per sector keeps one synthesis around 10 s (8 POIs measured ~12 s before Wikipedia extracts were
+  // added, which pushed real requests past the old 14 s timeout).
+  const topPois = input.pois.slice(0, MAX_POIS_PER_SECTOR).map((p) => ({
     osmId: p.osmId,
     name: p.name,
     lat: p.lat,
@@ -232,7 +237,7 @@ async function callAzureOpenAiSectorAgent(
       pois: topPois,
     },
     useWebSearch: false,
-    timeoutMs: 14000,
+    timeoutMs: SECTOR_TIMEOUT_MS,
   });
 
   const parsed = JSON.parse(rawContent) as {
