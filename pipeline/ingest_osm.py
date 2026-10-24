@@ -44,7 +44,7 @@ QUERY = """
   node["place"~"^(neighbourhood|suburb|quarter)$"];
   nwr["wikidata"];
 );
-out geom tags;
+out body geom;
 """
 
 # Tags kept in `attrs` (everything else is dropped to keep rows small).

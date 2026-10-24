@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wander debug</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  :root { --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e3e3de; --accent: #d9480f;
+          --accent-soft: rgba(217,72,15,.18); --user: #1c64f2; --ok: #2b8a3e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #9a9a93;
+          --line: #33332f; --accent: #ff7a3d; --accent-soft: rgba(255,122,61,.22); --user: #5b9bff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, sans-serif; color: var(--ink); background: var(--bg);
+         display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
+  #map { position: relative; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column;
+          min-height: 0; }
+  header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center;
+           flex-wrap: wrap; }
+  h1 { font-size: 15px; margin: 0 8px 0 0; }
+  button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg);
+           color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line);
+          color: var(--muted); }
+  .pill.live { color: var(--accent); border-color: var(--accent); }
+  #card { margin: 10px 14px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; display: none; }
+  #card h2 { font-size: 15px; margin: 0 0 2px; }
+  #card .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  #card li { font-size: 12px; margin: 3px 0; }
+  #card a { color: var(--muted); }
+  #log { flex: 1; overflow-y: auto; padding: 10px 14px; min-height: 0; }
+  .msg { margin: 6px 0; padding: 6px 9px; border-radius: 8px; max-width: 92%; }
+  .msg.user { background: var(--bg); margin-left: auto; }
+  .msg.assistant { border: 1px solid var(--line); }
+  .msg.partial { opacity: .65; }
+  .dbg { color: var(--muted); font: 11px/1.35 ui-monospace, monospace; margin: 3px 0; white-space: pre-wrap; }
+  form { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  input[type=text] { flex: 1; font: inherit; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--line);
+                     background: var(--bg); color: var(--ink); }
+  #walkbar { position: absolute; left: 12px; top: 12px; z-index: 2; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 8px; padding: 8px 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+             max-width: calc(100% - 24px); }
+  #walkbar small { color: var(--muted); }
+  #queue { position: absolute; left: 12px; bottom: 28px; z-index: 2; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 6px 10px; font: 11px/1.4 ui-monospace, monospace; color: var(--muted);
+           max-width: 420px; }
+  @media (max-width: 800px) { body { grid-template-columns: 1fr; grid-template-rows: 55vh 45vh; }
+                              aside { border-left: 0; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div id="map">
+  <div id="walkbar">
+    <button id="demo">▶ Demo walk</button>
+    <button id="pause" disabled>Pause</button>
+    <label><small>speed</small>
+      <select id="speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option>
+        <option value="8">8×</option></select></label>
+    <small>click = teleport · shift-click = walk there · ←/→ = turn</small>
+  </div>
+  <div id="queue">attention queue: —</div>
+</div>
+<aside>
+  <header>
+    <h1>Wander</h1>
+    <button id="start" class="primary">Start session</button>
+    <button id="mic" disabled>Mic off</button>
+    <button id="quiet" disabled>Pause guide</button>
+    <span id="state" class="pill">offline</span>
+    <span id="lang" class="pill">—</span>
+  </header>
+  <div id="card"></div>
+  <div id="log"></div>
+  <form id="ask"><input id="text" type="text" placeholder="Type a question (or use the mic)…" autocomplete="off">
+    <button type="submit">Send</button></form>
+</aside>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

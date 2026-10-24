@@ -6,7 +6,7 @@
  * This interface was referenced by `WanderProtocol`'s JSON-Schema
  * via the `definition` "UplinkMessage".
  */
-export type UplinkMessage = Hello | Location | Playback | Control | Ui;
+export type UplinkMessage = Hello | Location | Playback | Control | Ui | Text;
 /**
  * This interface was referenced by `WanderProtocol`'s JSON-Schema
  * via the `definition` "Mode".
@@ -165,6 +165,16 @@ export interface Ui {
   lat?: number;
   lon?: number;
   tour_id?: string;
+}
+/**
+ * Typed user input (debug client, mic-off fallback)
+ *
+ * This interface was referenced by `WanderProtocol`'s JSON-Schema
+ * via the `definition` "Text".
+ */
+export interface Text {
+  type: "text";
+  text: string;
 }
 /**
  * This interface was referenced by `WanderProtocol`'s JSON-Schema

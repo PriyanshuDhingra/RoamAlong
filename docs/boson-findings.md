@@ -4,11 +4,11 @@ Results of `tools/probe_boson.py` (IMPLEMENTATION_PLAN.md §4.7), run 2026-10-23
 
 | # | Probe | Docs say | Observed | Still assumed / to do |
 |---|---|---|---|---|
-| 1 | Per-response `instructions`: replace or append? | "System prompt for this response" | **Replace.** Session rule ("end with PINEAPPLE") was followed without per-response instructions and dropped with them. | Always send the full composed prompt per response (as planned). |
+| 1 | Per-response `instructions`: replace or append? | "System prompt for this response" | **Replace**, and (found later) the response also **ignores the conversation**: see [boson-api-issues.md](boson-api-issues.md) #2. | Don't use per-response instructions; swap session instructions instead. |
 | 2 | Mid-session `session.update` of instructions | Acknowledged with `session.updated` | **Accepted even during an active response**: acked in 24 ms idle, 26 ms mid-response, no audible glitch, in-flight story continued. Next turn used the new location. | Debounce anyway (§4.4). |
 | 3 | Change `audio.output.voice` mid-session | — | Not run (we use `default`). | Guest-voice handoff is out of scope. |
 | 4 | Code-switching, cloned vs default voice | — | Not run (no cloned voice). | — |
-| 5 | Proactive `response.create`, no user input | — | **Works.** Spoke naturally from the BRIEFING, used the hook and look-for cue, ended with an offer. First audio 263 ms. Ran 13.7 s against a "~10 s" constraint. | Enforce length with `max_output_tokens` per response, not only instructions. |
+| 5 | Proactive `response.create`, no user input | — | **Works.** Spoke naturally from the BRIEFING, used the hook and look-for cue, ended with an offer. First audio 263 ms. Ran 13.7 s against a "~10 s" constraint. | Per-response `max_output_tokens` breaks the turn ([issues](boson-api-issues.md) #1); length is instructions-only for now. |
 | 6 | Filler before a 1.5 s client tool | — | **Yes.** "Let me check the opening year for you." before the call, then the answer from the tool result. | — |
 | 7 | Does model speech reset the idle timer? | Idle = 5 min "without detected user speech" | Not run (5+ min). | Assume no: session rotation still needed (§4.5). |
 | 8 | `max_duration_sec` | Sent in `session.max_duration_reached` | Not run. | Log it when it happens. |

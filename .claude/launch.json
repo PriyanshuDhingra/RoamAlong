@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gateway",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "backend.gateway.main:app", "--port", "8000", "--reload", "--reload-dir", "backend", "--reload-dir", "apps"],
+      "port": 8000
+    }
+  ]
+}

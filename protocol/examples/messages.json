@@ -1,37 +1,167 @@
 {
   "uplink": [
-    { "type": "hello", "device_id": "dev_1", "mode": "wander", "ui_lang": "en", "app_version": "0.1.0", "debug": true },
-    { "type": "location", "lat": 43.6629, "lon": -79.3957, "accuracy_m": 8, "course_deg": 90, "speed_mps": 1.3, "ts": 1792800000000, "source": "sim" },
-    { "type": "playback", "item_id": "item_abc", "played_ms": 1250, "stopped": true },
-    { "type": "control", "action": "set_mode", "mode": "tour" },
-    { "type": "ui", "action": "tap_entity", "entity_id": "e_university_college" }
+    {
+      "type": "hello",
+      "device_id": "dev_1",
+      "mode": "wander",
+      "ui_lang": "en",
+      "app_version": "0.1.0",
+      "debug": true
+    },
+    {
+      "type": "location",
+      "lat": 43.6629,
+      "lon": -79.3957,
+      "accuracy_m": 8,
+      "course_deg": 90,
+      "speed_mps": 1.3,
+      "ts": 1792800000000,
+      "source": "sim"
+    },
+    {
+      "type": "playback",
+      "item_id": "item_abc",
+      "played_ms": 1250,
+      "stopped": true
+    },
+    {
+      "type": "control",
+      "action": "set_mode",
+      "mode": "tour"
+    },
+    {
+      "type": "ui",
+      "action": "tap_entity",
+      "entity_id": "e_university_college"
+    },
+    {
+      "type": "text",
+      "text": "What's that building with the tower?"
+    }
   ],
   "downlink": [
-    { "type": "ready", "session_id": "s_1", "voice": "default", "mode": "wander" },
-    { "type": "stop_playback", "reason": "barge_in" },
-    { "type": "transcript", "role": "user", "item_id": "item_u1", "text": "What's that building?", "final": true, "lang": "en" },
     {
-      "type": "map_focus", "focus_id": "f_1", "response_id": "resp_1", "item_id": "item_abc",
-      "entities": [{ "entity_id": "e_university_college", "kind": "building", "geometry_ref": "e_university_college" }],
-      "style": "building", "camera": "fit", "t_start_ms": 420
+      "type": "ready",
+      "session_id": "s_1",
+      "voice": "default",
+      "mode": "wander"
     },
     {
-      "type": "card", "entity_id": "e_university_college", "title": "University College", "subtitle": "Romanesque Revival · 1859",
-      "facts": [{ "text": "Designed by Cumberland and Storm.", "claim_type": "established", "source_url": "https://en.wikipedia.org/wiki/University_College,_Toronto" }]
+      "type": "stop_playback",
+      "reason": "barge_in"
     },
     {
-      "type": "route", "route_id": "r_1", "eta_s": 480,
-      "geojson": { "type": "LineString", "coordinates": [[-79.3957, 43.6629], [-79.3947, 43.6677]] },
-      "maneuvers": [{ "index": 0, "instruction": "Head north on Queen's Park", "lat": 43.6629, "lon": -79.3957, "distance_m": 540 }]
+      "type": "transcript",
+      "role": "user",
+      "item_id": "item_u1",
+      "text": "What's that building?",
+      "final": true,
+      "lang": "en"
     },
-    { "type": "nav_cue", "maneuver_idx": 1, "distance_m": 40, "earcon": "turn_soon" },
-    { "type": "state", "mode": "wander", "guide_state": "IDLE", "language": "fr", "proactivity": "balanced" },
-    { "type": "debug", "kind": "director_decision", "ts": 1792800000000, "payload": { "action": "HOOK", "score": 0.71 } },
-    { "type": "error", "code": "billing", "message": "Boson credits exhausted", "fatal": true }
+    {
+      "type": "map_focus",
+      "focus_id": "f_1",
+      "response_id": "resp_1",
+      "item_id": "item_abc",
+      "entities": [
+        {
+          "entity_id": "e_university_college",
+          "kind": "building",
+          "geometry_ref": "e_university_college"
+        }
+      ],
+      "style": "building",
+      "camera": "fit",
+      "t_start_ms": 420
+    },
+    {
+      "type": "card",
+      "entity_id": "e_university_college",
+      "title": "University College",
+      "subtitle": "Romanesque Revival · 1859",
+      "facts": [
+        {
+          "text": "Designed by Cumberland and Storm.",
+          "claim_type": "established",
+          "source_url": "https://en.wikipedia.org/wiki/University_College,_Toronto"
+        }
+      ]
+    },
+    {
+      "type": "route",
+      "route_id": "r_1",
+      "eta_s": 480,
+      "geojson": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -79.3957,
+            43.6629
+          ],
+          [
+            -79.3947,
+            43.6677
+          ]
+        ]
+      },
+      "maneuvers": [
+        {
+          "index": 0,
+          "instruction": "Head north on Queen's Park",
+          "lat": 43.6629,
+          "lon": -79.3957,
+          "distance_m": 540
+        }
+      ]
+    },
+    {
+      "type": "nav_cue",
+      "maneuver_idx": 1,
+      "distance_m": 40,
+      "earcon": "turn_soon"
+    },
+    {
+      "type": "state",
+      "mode": "wander",
+      "guide_state": "IDLE",
+      "language": "fr",
+      "proactivity": "balanced"
+    },
+    {
+      "type": "debug",
+      "kind": "director_decision",
+      "ts": 1792800000000,
+      "payload": {
+        "action": "HOOK",
+        "score": 0.71
+      }
+    },
+    {
+      "type": "error",
+      "code": "billing",
+      "message": "Boson credits exhausted",
+      "fatal": true
+    }
   ],
   "invalid_uplink": [
-    { "type": "location", "lat": 43.66, "lon": -79.39, "ts": 1, "source": "gps" },
-    { "type": "hello", "device_id": "dev_1", "mode": "drive", "ui_lang": "en", "app_version": "0.1.0" },
-    { "type": "control", "action": "mute_mic", "user_id": "someone_else" }
+    {
+      "type": "location",
+      "lat": 43.66,
+      "lon": -79.39,
+      "ts": 1,
+      "source": "gps"
+    },
+    {
+      "type": "hello",
+      "device_id": "dev_1",
+      "mode": "drive",
+      "ui_lang": "en",
+      "app_version": "0.1.0"
+    },
+    {
+      "type": "control",
+      "action": "mute_mic",
+      "user_id": "someone_else"
+    }
   ]
 }

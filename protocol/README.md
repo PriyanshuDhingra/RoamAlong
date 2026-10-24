@@ -12,7 +12,7 @@ One WebSocket per session: `wss://<backend>/v1/session?token=<device-token>`.
     | 0–7 | `item_id` hash: first 8 bytes of SHA-1 of the Boson `item_id` |
     | 8–11 | chunk sequence number, uint32 big-endian, starting at 0 per item |
 
-    The app reports `playback.played_ms` per `item_id` and drops chunks for items it was told to stop (§5.7).
+    The app reports `playback.played_ms` per item, using the `item_id` from transcripts or the 16-hex-char hash from this header (the gateway accepts both), and drops chunks for items it was told to stop (§5.7).
 
 ## Generated types
 

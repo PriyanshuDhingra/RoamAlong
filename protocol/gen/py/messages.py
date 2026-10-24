@@ -203,6 +203,14 @@ class Ui(BaseModel):
     tour_id: str | None = None
 
 
+class Text(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    type: Literal['text']
+    text: Annotated[str, Field(max_length=2000, min_length=1)]
+
+
 class Ready(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -375,9 +383,9 @@ class Error(BaseModel):
     fatal: bool
 
 
-class UplinkMessage(RootModel[Hello | Location | Playback | Control | Ui]):
+class UplinkMessage(RootModel[Hello | Location | Playback | Control | Ui | Text]):
     root: Annotated[
-        Hello | Location | Playback | Control | Ui,
+        Hello | Location | Playback | Control | Ui | Text,
         Field(description='App -> Gateway', title='UplinkMessage'),
     ]
 

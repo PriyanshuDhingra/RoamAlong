@@ -5,21 +5,21 @@ Re-run with `make data`.
 
 ## Totals
 
-- Entities: **1728** (venue 693, building 426, food 320, street 134, artwork 49, area 29, park 29, monument 27, plaque 11, transit 9, river 1)
-- Linked to Wikidata: 407 (of which Wikidata-only, no OSM geometry: 126)
-- With an English Wikipedia article (narrative source for cards): 191
+- Entities: **1732** (venue 691, building 430, food 320, street 135, artwork 49, park 30, area 29, monument 27, plaque 11, transit 9, river 1)
+- Linked to Wikidata: 409 (of which Wikidata-only, no OSM geometry: 113)
+- With an English Wikipedia article (narrative source for cards): 192
 - With heritage designation or historic tag: 76
-- Link decisions waiting for review: 28 (`data/staging/link_review.jsonl`)
+- Link decisions waiting for review: 26 (`data/staging/link_review.jsonl`)
 
 ## Per H3 res-8 cell
 
 | cell | entities | with Wikipedia | heritage | buildings | food | art & monuments |
 |---|---|---|---|---|---|---|
 | `882b9bc739fffff` | 478 | 51 | 16 | 110 | 76 | 10 |
-| `882b9bc73bfffff` | 394 | 70 | 40 | 127 | 47 | 63 |
-| `882b9bc715fffff` | 263 | 15 | 3 | 32 | 56 | 4 |
+| `882b9bc73bfffff` | 397 | 71 | 40 | 130 | 47 | 63 |
+| `882b9bc715fffff` | 264 | 15 | 3 | 32 | 56 | 4 |
 | `882b9bc733fffff` | 224 | 16 | 4 | 35 | 64 | 5 |
-| `882b9bc731fffff` | 208 | 27 | 9 | 88 | 38 | 2 |
+| `882b9bc731fffff` | 208 | 27 | 9 | 89 | 38 | 2 |
 | `882b9bc46dfffff` | 77 | 9 | 1 | 13 | 27 | 2 |
 | `882b9bc703fffff` | 68 | 3 | 3 | 11 | 12 | 1 |
 | `882b9bc73dfffff` | 13 | 0 | 0 | 8 | 0 | 0 |
@@ -32,13 +32,13 @@ fix the OSM link (or add one to `pipeline/curated/link_overrides.json`) before u
 
 | # | name | kind | Wikipedia | heritage | architect | built | dims from data | geometry |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Royal Ontario Museum | building | ✓ |  |  | 1912 | history |  |
-| 2 | Hart House | building | ✓ | ✓ | Sproatt & Rolph | 1919 | history architecture people | point only |
+| 1 | Hart House | building | ✓ | ✓ | Sproatt & Rolph | 1919 | history architecture people |  |
+| 2 | Royal Ontario Museum | building | ✓ |  |  | 1912 | history |  |
 | 3 | Senator David A. Croll Apartments | building | ✓ | ✓ |  | 1968 | history |  |
 | 4 | University College | area | ✓ |  |  | 1853 | history |  |
 | 5 | One Bloor West | building | ✓ |  | Foster and Partners |  | architecture |  |
 | 6 | Ontario Legislative Building | building | ✓ |  | Richard A. Waite | 1893 | history architecture |  |
-| 7 | Queen's Park | park | ✓ |  |  |  | nature people | point only |
+| 7 | Queen's Park | park | ✓ |  |  |  | nature people |  |
 | 8 | Yorkville | area | ✓ |  |  |  |  | point only |
 | 9 | Four Seasons | building | ✓ |  | Peter Clewes, architectsAlliance | 2012 | history architecture |  |
 | 10 | Masonic Temple | building | ✓ | ✓ |  |  | history architecture |  |
@@ -46,37 +46,37 @@ fix the OSM link (or add one to `pipeline/curated/link_overrides.json`) before u
 | 12 | Philosopher's Walk | park | ✓ |  |  |  | nature | point only |
 | 13 | Convocation Hall | building | ✓ | ✓ | Darling and Pearson | 1907 | history architecture |  |
 | 14 | Yonge Street | street | ✓ |  |  | 1794 | history people |  |
-| 15 | One Bloor East | building | ✓ |  | Hariri Pontarini Architects | 2015 | history architecture |  |
-| 16 | Taddle Creek | river | ✓ |  |  |  | nature | point only |
-| 17 | Women's College Hospital | building | ✓ | ✓ |  | 1883 | history |  |
-| 18 | Simcoe Hall | building | ✓ | ✓ | Darling and Pearson | 1924 | history architecture people |  |
-| 19 | Annesley Hall | building | ✓ | ✓ | George M. Miller | 1903 | history architecture people |  |
-| 20 | Medical Sciences Building | building | ✓ |  |  |  | people |  |
-| 21 | Stewart Building | building | ✓ | ✓ | E. J. Lennox | 1894 | history architecture |  |
-| 22 | St. Basil's Church | building | ✓ | ✓ | William Hay, Arthur W. Holmes | 1856 | history architecture people |  |
-| 23 | Toronto Public Library - Toronto Reference Library | building | ✓ |  | Raymond Moriyama | 1977 | history architecture |  |
-| 24 | Knox College | area | ✓ | ✓ | Chapman & McGiffin | 1844 | history architecture |  |
-| 25 | Newman Centre | building | ✓ | ✓ |  | 1891 | history architecture |  |
-| 26 | Louis B. Stewart Observatory | building | ✓ |  | Cumberland and Storm | 1855 | history architecture people |  |
-| 27 | Lillian Massey Building | building | ✓ | ✓ | George M. Miller | 1912 | history architecture people |  |
-| 28 | Bata Shoe Museum | building | ✓ |  | Raymond Moriyama | 1995 | history architecture |  |
-| 29 | Daniels Building | building | ✓ | ✓ | Smith and Gemmell, KPMB Architects | 1875 | history architecture |  |
-| 30 | Two Bloor West | building | ✓ |  |  | 1973 | history |  |
-| 31 | Thomas Fisher Rare Book Library | building | ✓ |  | Mathers & Haldenby | 1972 | history architecture people |  |
-| 32 | Massey College | area | ✓ | ✓ | Ronald Thom, Shim-Sutcliffe Architects | 1963 | history architecture people |  |
-| 33 | Trinity College | area | ✓ |  |  | 1851 | history |  |
-| 34 | Wycliffe College | area | ✓ | ✓ | David Brash Dick, George M. Miller | 1877 | history architecture people |  |
-| 35 | Victoria Hospital for Sick Children | plaque | ✓ | ✓ | Frank Darling | 1892 | history architecture | point only |
-| 36 | Regis College | building | ✓ |  |  | 1930 | history |  |
-| 37 | Soldiers' Tower | monument | ✓ |  | Sproatt & Rolph, Mathers & Haldenby | 1924 | history architecture art |  |
-| 38 | Homeless Jesus | artwork | ✓ |  |  | 2013 | history art | point only |
-| 39 | Varsity Stadium | building | ✓ |  |  | 1898 | history | point only |
-| 40 | Pontifical Institute of Medieval Studies | building | ✓ |  |  | 1929 | history |  |
-| 41 | Church of the Redeemer | building | ✓ |  |  |  |  |  |
-| 42 | Schwartz Reisman Innovation Campus | park | ✓ |  | Teeple Architects, Weiss/Manfredi | 2020 | history architecture nature people |  |
-| 43 | Fields Institute for Research in Math Science | building | ✓ |  |  | 1992 | history people |  |
-| 44 | Saint Thomas's Anglican Church | building | ✓ | ✓ | Eden Smith |  | history architecture |  |
-| 45 | Ontario Institute for Studies in Education (University of Toronto) | building | ✓ |  | Kenneth R. Cooper | 1965 | history architecture |  |
+| 15 | MaRS Discovery District | building | ✓ |  |  | 2000 | history |  |
+| 16 | One Bloor East | building | ✓ |  | Hariri Pontarini Architects | 2015 | history architecture |  |
+| 17 | Taddle Creek | river | ✓ |  |  |  | nature | point only |
+| 18 | Women's College Hospital | building | ✓ | ✓ |  | 1883 | history |  |
+| 19 | Simcoe Hall | building | ✓ | ✓ | Darling and Pearson | 1924 | history architecture people |  |
+| 20 | Annesley Hall | building | ✓ | ✓ | George M. Miller | 1903 | history architecture people |  |
+| 21 | Gerstein Science Information Centre | building | ✓ | ✓ | David Brash Dick, Darling and Pearson | 1892 | history architecture people |  |
+| 22 | Medical Sciences Building | building | ✓ |  |  |  | people |  |
+| 23 | Stewart Building | building | ✓ | ✓ | E. J. Lennox | 1894 | history architecture |  |
+| 24 | St. Basil's Church | building | ✓ | ✓ | William Hay, Arthur W. Holmes | 1856 | history architecture people |  |
+| 25 | Toronto Public Library - Toronto Reference Library | building | ✓ |  | Raymond Moriyama | 1977 | history architecture |  |
+| 26 | Knox College | building | ✓ | ✓ | Chapman & McGiffin | 1844 | history architecture |  |
+| 27 | Newman Centre | building | ✓ | ✓ |  | 1891 | history architecture |  |
+| 28 | Louis B. Stewart Observatory | building | ✓ |  | Cumberland and Storm | 1855 | history architecture people |  |
+| 29 | Lillian Massey Building | building | ✓ | ✓ | George M. Miller | 1912 | history architecture people |  |
+| 30 | Bata Shoe Museum | building | ✓ |  | Raymond Moriyama | 1995 | history architecture |  |
+| 31 | Daniels Building | building | ✓ | ✓ | Smith and Gemmell, KPMB Architects | 1875 | history architecture |  |
+| 32 | Two Bloor West | building | ✓ |  |  | 1973 | history |  |
+| 33 | Thomas Fisher Rare Book Library | building | ✓ |  | Mathers & Haldenby | 1972 | history architecture people |  |
+| 34 | Massey College | area | ✓ | ✓ | Ronald Thom, Shim-Sutcliffe Architects | 1963 | history architecture people |  |
+| 35 | Trinity College | area | ✓ |  |  | 1851 | history |  |
+| 36 | Wycliffe College | building | ✓ | ✓ | David Brash Dick, George M. Miller | 1877 | history architecture people |  |
+| 37 | Victoria Hospital for Sick Children | plaque | ✓ | ✓ | Frank Darling | 1892 | history architecture | point only |
+| 38 | Regis College | building | ✓ |  |  | 1930 | history |  |
+| 39 | Soldiers' Tower | monument | ✓ |  | Sproatt & Rolph, Mathers & Haldenby | 1924 | history architecture art |  |
+| 40 | Homeless Jesus | artwork | ✓ |  |  | 2013 | history art | point only |
+| 41 | Varsity Stadium | building | ✓ |  |  | 1898 | history | point only |
+| 42 | Pontifical Institute of Medieval Studies | building | ✓ |  |  | 1929 | history |  |
+| 43 | Church of the Redeemer | building | ✓ |  |  |  |  |  |
+| 44 | Schwartz Reisman Innovation Campus | park | ✓ |  | Teeple Architects, Weiss/Manfredi | 2020 | history architecture nature people |  |
+| 45 | Fields Institute for Research in Math Science | building | ✓ |  |  | 1992 | history people |  |
 
 ## Known gaps
 
