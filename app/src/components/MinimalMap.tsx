@@ -10,10 +10,14 @@ import type {
   TourRoute,
 } from "../../../shared/types.js";
 import { movePointByMeters } from "../../../shared/geo.js";
-import type { LocationSnapshot } from "../location/LocationManager.js";
+import {
+  LocationManager,
+  type LocationSnapshot,
+} from "../location/LocationManager.js";
 
 export interface MinimalMapProps {
   location: LocationSnapshot;
+  locationManager: LocationManager;
   heartbeat: SpatialHeartbeatResponse | null;
   highlights: MapHighlightAction[];
   activeRoute: TourRoute | null;
@@ -112,6 +116,7 @@ function ensureClosedLonLatRing(geometry: GeoPoint[]): [number, number][] {
 
 export const MinimalMap: React.FC<MinimalMapProps> = ({
   location,
+  locationManager,
   heartbeat,
   highlights,
   activeRoute,
@@ -128,7 +133,7 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
   const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
   const lastHighlightKeyRef = useRef<string>("");
   const followPausedUntilRef = useRef(0);
-  const lastFollowAtRef = useRef(0);
+  const liveLocationRef = useRef(location);
   const syncRef = useRef<() => void>(() => {});
 
   const onMapClickRef = useRef(onMapClickTeleport);
@@ -161,6 +166,8 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
 
     map.on("load", () => {
       styleLoadedRef.current = true;
+      const here = liveLocationRef.current;
+      map.setCenter([here.lon, here.lat]);
 
       // Positron already draws flat building footprints. No extrusion.
       map.addSource("tour-route-source", {
@@ -265,15 +272,25 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    return locationManager.subscribe((snap) => {
+      liveLocationRef.current = snap;
+      userMarkerRef.current
+        ?.setLngLat([snap.lon, snap.lat])
+        .setRotation(snap.headingDeg);
+      const map = mapRef.current;
+      if (!map || !styleLoadedRef.current) return;
+      if (Date.now() <= followPausedUntilRef.current) return;
+      map.stop();
+      map.setCenter([snap.lon, snap.lat]);
+    });
+  }, [locationManager]);
+
   const syncAllLayers = () => {
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
 
-    // A. Update User Location Dot & Heading Beam
-    userMarkerRef.current
-      ?.setLngLat([location.lon, location.lat])
-      .setRotation(location.headingDeg);
-
+    // The user dot and camera follow LocationManager directly.
     // B. Update Walking Route to the Next Spot
     const walkSource = map.getSource(
       "walk-route-source"
@@ -414,9 +431,10 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
     if (highlights.length > 0 && highlightKey !== lastHighlightKeyRef.current) {
       lastHighlightKeyRef.current = highlightKey;
       followPausedUntilRef.current = Date.now() + 15000;
+      const here = liveLocationRef.current;
       const bounds = new maplibregl.LngLatBounds(
-        [location.lon, location.lat],
-        [location.lon, location.lat]
+        [here.lon, here.lat],
+        [here.lon, here.lat]
       );
       for (const item of highlights) bounds.extend([item.lon, item.lat]);
       map.fitBounds(bounds, {
@@ -426,34 +444,25 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
         duration: 700,
         maxZoom: 17,
       });
-    } else if (Date.now() > followPausedUntilRef.current) {
-      const now = Date.now();
-      const rapid = now - lastFollowAtRef.current < 220;
-      lastFollowAtRef.current = now;
-      if (rapid) {
-        map.setCenter([location.lon, location.lat]);
-      } else {
-        map.easeTo({
-          center: [location.lon, location.lat],
-          zoom: 16.6,
-          pitch: 45,
-          bearing: 0,
-          padding: { top: 80, bottom: 280, left: 24, right: 24 },
-          duration: 400,
-        });
-      }
     }
-  }, [
-    location.lat,
-    location.lon,
-    location.headingDeg,
-    highlights,
-    activeRoute,
-    walkPath,
-    heartbeat,
-    showQuadrantOverlay,
-    recenterToken,
-  ]);
+  }, [highlights, activeRoute, walkPath, heartbeat, showQuadrantOverlay]);
+
+  useEffect(() => {
+    if (recenterToken === 0) return;
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current) return;
+    followPausedUntilRef.current = 0;
+    const here = liveLocationRef.current;
+    map.stop();
+    map.easeTo({
+      center: [here.lon, here.lat],
+      zoom: 16.6,
+      pitch: 45,
+      bearing: 0,
+      padding: { top: 80, bottom: 280, left: 24, right: 24 },
+      duration: 400,
+    });
+  }, [recenterToken]);
 
   return (
     <div

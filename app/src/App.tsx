@@ -78,7 +78,9 @@ export const App: React.FC = () => {
 
   // Refs for fresh state inside Boson tool callbacks
   const locationRef = useRef(location);
-  locationRef.current = location;
+  const publishedLocationRef = useRef(location);
+  const debugModeRef = useRef(debugMode);
+  debugModeRef.current = debugMode;
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const heartbeatRef = useRef(heartbeat);
@@ -151,9 +153,20 @@ export const App: React.FC = () => {
     tourAcceptedRef.current = true;
   }, [transcript, activeRoute]);
 
-  // Subscribe to LocationManager updates & auto-enable Real Device GPS on mobile phones/tablets
+  // Live fixes stay in LocationManager. React hears about them after a real move,
+  // a real turn, a GPS/sim switch, or a short pause while debug mode is open.
   useEffect(() => {
     const unsub = locationManager.subscribe((snap) => {
+      locationRef.current = snap;
+      const prev = publishedLocationRef.current;
+      const moved = haversineMeters(prev, snap) >= 15;
+      const turned =
+        Math.abs(((snap.headingDeg - prev.headingDeg + 540) % 360) - 180) >= 20;
+      const sourceChanged = prev.source !== snap.source;
+      const debugTick =
+        debugModeRef.current && snap.timestamp - prev.timestamp >= 250;
+      if (!moved && !turned && !sourceChanged && !debugTick) return;
+      publishedLocationRef.current = snap;
       setLocation(snap);
     });
 
@@ -166,6 +179,14 @@ export const App: React.FC = () => {
 
     return unsub;
   }, [locationManager]);
+
+  useEffect(() => {
+    if (!debugMode) return;
+    const snap = locationManager.getSnapshot();
+    locationRef.current = snap;
+    publishedLocationRef.current = snap;
+    setLocation(snap);
+  }, [debugMode, locationManager]);
 
   // Trigger 4-Quadrant (N/S/E/W) Spatial Heartbeat & Read-the-Room ProactivityPacer on location change
   useEffect(() => {
@@ -546,6 +567,7 @@ export const App: React.FC = () => {
       {/* Full-Screen Minimalist Spotlight Map */}
       <MinimalMap
         location={location}
+        locationManager={locationManager}
         heartbeat={heartbeat}
         highlights={highlights}
         activeRoute={activeRoute}
