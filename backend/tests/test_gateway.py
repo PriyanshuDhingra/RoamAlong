@@ -51,3 +51,19 @@ def test_places_endpoints():
 ])
 def test_language_tracking(text, expected):
     assert detect_script_language(text, "en") == expected
+
+
+def test_access_token_required_when_set(monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setenv("WANDER_ACCESS_TOKEN", "s3cret")
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/v1/session?token=wrong") as ws:
+        ws.receive_text()
+
+    async def fake_run(self):
+        await self.send_app({"type": "ready", "session_id": "x", "voice": "default", "mode": self.mode})
+
+    monkeypatch.setattr(main.GuideSession, "run", fake_run)
+    with client.websocket_connect("/v1/session?token=s3cret") as ws:
+        ws.send_text('{"type":"hello","device_id":"d","mode":"wander","ui_lang":"en","app_version":"0"}')
+        assert ws.receive_json()["type"] == "ready"

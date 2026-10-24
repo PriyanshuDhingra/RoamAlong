@@ -1,7 +1,9 @@
 """Gateway entry point: the app session WebSocket (§3.4), map data endpoints, and the web debug client (§15.2)."""
 
 import contextlib
+import hmac
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -51,6 +53,12 @@ async def place(entity_id: str) -> dict:
 
 @app.websocket("/v1/session")
 async def session(ws: WebSocket) -> None:
+    # Shared access token (§3.4 `?token=`): required when WANDER_ACCESS_TOKEN is set, e.g. behind a public tunnel,
+    # so a leaked URL can't spend the Boson credits.
+    expected = os.environ.get("WANDER_ACCESS_TOKEN")
+    if expected and not hmac.compare_digest(ws.query_params.get("token", ""), expected):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     try:
         hello = UplinkMessage.model_validate_json(await ws.receive_text()).root
