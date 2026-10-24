@@ -517,6 +517,10 @@
         "badge": {
           "type": "string",
           "description": "A/B badge for ambiguity candidates"
+        },
+        "feature": {
+          "type": "object",
+          "description": "GeoJSON Feature for the entity, inline so the app needs no extra fetch"
         }
       },
       "required": [

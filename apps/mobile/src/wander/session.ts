@@ -1,8 +1,10 @@
 // App <-> Gateway session (protocol/README.md). JSON text frames for control, binary frames for audio.
+import * as Haptics from 'expo-haptics';
+
 import type { DownlinkMessage, UplinkMessage } from '../../../../protocol/gen/ts/messages';
 import { AudioEngine } from './audio';
 import { httpBase, sessionUrl } from './config';
-import { emptyCollection, useWander } from './store';
+import { emptyCollection, type TourSummary, useWander } from './store';
 
 const APP_VERSION = '0.1.0';
 
@@ -98,8 +100,41 @@ export class GuideClient {
     useWander.getState().addLine({ id: `u${Date.now()}`, role: 'user', text, final: true });
   }
 
-  tapEntity(id: string): void {
+  /** User tapped a place on the map: show its card and ask the guide about it. */
+  async select(id: string): Promise<void> {
+    const s = useWander.getState();
+    s.set({ selectedId: id });
+    const f = await this.place(id);
+    if (f) {
+      const p = f.properties as { name: string; summary?: string; image_url?: string | null };
+      s.set({ focus: { type: 'FeatureCollection', features: [f] },
+              card: { type: 'card', entity_id: id, title: p.name, subtitle: p.summary ?? '', facts: [],
+                      ...(p.image_url ? { thumb_url: p.image_url } : {}) } });
+    }
     this.send({ type: 'ui', action: 'tap_entity', entity_id: id });
+  }
+
+  async loadTours(): Promise<void> {
+    try {
+      const r = await fetch(`${httpBase(useWander.getState().gatewayUrl)}/v1/tours`);
+      if (r.ok) useWander.getState().set({ tours: (await r.json()) as TourSummary[] });
+    } catch {
+      // gateway unreachable: the picker shows an empty state
+    }
+  }
+
+  startTour(id: string): void {
+    this.send({ type: 'ui', action: 'start_tour', tour_id: id });
+    useWander.getState().set({ mode: 'tour' });
+  }
+
+  skipStop(): void {
+    this.send({ type: 'ui', action: 'skip_stop' });
+  }
+
+  endTour(): void {
+    this.send({ type: 'ui', action: 'end_tour' });
+    useWander.getState().set({ tour: null, mode: 'wander', route: null });
   }
 
   async place(id: string): Promise<GeoJSON.Feature | null> {
@@ -119,7 +154,7 @@ export class GuideClient {
     const s = useWander.getState();
     switch (m.type) {
       case 'state':
-        s.set({ guideState: m.guide_state, language: m.language, proactivity: m.proactivity });
+        s.set({ guideState: m.guide_state, language: m.language, proactivity: m.proactivity, mode: m.mode });
         break;
       case 'stop_playback':
         this.audio.flush();
@@ -132,8 +167,9 @@ export class GuideClient {
         s.set({ card: m });
         break;
       case 'map_focus': {
+        // geometry comes inline (no extra request); fall back to /v1/places for older gateways
         const feats = await Promise.all(m.entities.map(async (e) => {
-          const f = await this.place(e.entity_id);
+          const f = (e.feature as GeoJSON.Feature | undefined) ?? (await this.place(e.entity_id));
           return f ? { ...f, properties: { ...f.properties, badge: e.badge ?? '' } } : null;
         }));
         s.set({ focus: { type: 'FeatureCollection', features: feats.filter(Boolean) as GeoJSON.Feature[] } });
@@ -141,6 +177,15 @@ export class GuideClient {
       }
       case 'route':
         s.set({ route: m.cleared ? null : { type: 'Feature', geometry: m.geojson as GeoJSON.LineString, properties: {} } });
+        break;
+      case 'tour': {
+        const prev = s.tour;
+        s.set({ tour: m.status === 'ended' ? null : m, mode: m.status === 'ended' ? 'wander' : 'tour' });
+        if (prev && m.current > prev.current) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        break;
+      }
+      case 'nav_cue':
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         break;
       case 'error':
         s.addLine({ id: `e${Date.now()}`, role: 'dbg', text: `${m.code}: ${m.message}`, final: true });

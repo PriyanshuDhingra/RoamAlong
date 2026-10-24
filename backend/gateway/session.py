@@ -597,6 +597,7 @@ class GuideSession:
         await self.send_app({"type": "map_focus", "focus_id": f"f_{uuid.uuid4().hex[:8]}", "response_id": response_id,
                              "entities": [{"entity_id": p.id, "kind": p.kind if p.kind != "venue" else "venue",
                                            "geometry_ref": p.id, "label": p.names.get(self.language, p.name),
+                                           "feature": p.feature(),
                                            **({"badge": "AB"[i]} if badges and i < 2 else {})}
                                           for i, p in enumerate(places)],
                              "style": style, "camera": "fit"})
@@ -624,7 +625,8 @@ class GuideSession:
                   **({"source_url": f["source"]} if f.get("source", "").startswith("http") else
                      {"source_title": f["source"]} if f.get("source") else {})} for f in p.facts(limit=3)][:3]
         await self.send_app({"type": "card", "entity_id": p.id, "title": p.names.get(self.language, p.name),
-                             "subtitle": p.one_liner()[:120], "facts": facts})
+                             "subtitle": p.one_liner()[:120], "facts": facts,
+                             **({"thumb_url": p.image_url} if p.image_url else {})})
 
     # ------------------------------------------------------------------ Director
 

@@ -251,6 +251,12 @@ export interface FocusEntity {
    * A/B badge for ambiguity candidates
    */
   badge?: string;
+  /**
+   * GeoJSON Feature for the entity, inline so the app needs no extra fetch
+   */
+  feature?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * Bottom caption chip

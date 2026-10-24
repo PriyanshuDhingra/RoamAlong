@@ -11,6 +11,30 @@ let headingSub: Location.LocationSubscription | null = null;
 let simTimer: ReturnType<typeof setInterval> | null = null;
 let lastSent = 0;
 
+// Constant-position Kalman filter in metres (§7.1, simplified): each fix is weighted by its reported accuracy, and
+// uncertainty grows with time and speed between fixes. Damps downtown "urban canyon" jumps.
+const kf = { lat: 0, lon: 0, varM2: -1, t: 0 };
+const BAD_FIX_M = 50;
+
+function smooth(lat: number, lon: number, accuracy: number, speed: number, now: number): { lat: number; lon: number; acc: number } | null {
+  const measVar = Math.max(accuracy, 3) ** 2;
+  if (kf.varM2 < 0) {
+    Object.assign(kf, { lat, lon, varM2: measVar, t: now });
+    return { lat, lon, acc: accuracy };
+  }
+  const dt = Math.max(0, (now - kf.t) / 1000);
+  // a bad fix is only accepted when we have nothing recent and better
+  if (accuracy > BAD_FIX_M && dt < 10 && Math.sqrt(kf.varM2) < accuracy) return null;
+  const grow = (Math.max(speed, 0.5) * dt + 1) ** 2;
+  const prior = kf.varM2 + grow;
+  const k = prior / (prior + measVar);
+  kf.lat += k * (lat - kf.lat);
+  kf.lon += k * (lon - kf.lon);
+  kf.varM2 = (1 - k) * prior;
+  kf.t = now;
+  return { lat: kf.lat, lon: kf.lon, acc: Math.sqrt(kf.varM2) };
+}
+
 function update(p: Partial<ReturnType<typeof useWander.getState>['fix']>, force = false): void {
   const s = useWander.getState();
   s.set({ fix: { ...s.fix, ...p } });
@@ -23,6 +47,7 @@ function update(p: Partial<ReturnType<typeof useWander.getState>['fix']>, force 
 
 export async function startGps(): Promise<boolean> {
   stopAll();
+  kf.varM2 = -1;
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== 'granted') return false;
   useWander.getState().set({ source: 'gps' });
@@ -31,8 +56,9 @@ export async function startGps(): Promise<boolean> {
     (loc) => {
       const speed = Math.max(0, loc.coords.speed ?? 0);
       const course = loc.coords.heading != null && loc.coords.heading >= 0 && speed > 0.5 ? loc.coords.heading : null;
-      update({ lat: loc.coords.latitude, lon: loc.coords.longitude, accuracy: loc.coords.accuracy ?? 30, speed,
-               ...(course != null ? { heading: course } : {}) });
+      const f = smooth(loc.coords.latitude, loc.coords.longitude, loc.coords.accuracy ?? 30, speed, loc.timestamp);
+      if (!f) return;
+      update({ lat: f.lat, lon: f.lon, accuracy: f.acc, speed, ...(course != null ? { heading: course } : {}) });
     },
   );
   // Standing still: use the compass, since people turn to look at things (§7.1)

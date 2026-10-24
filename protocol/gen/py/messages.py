@@ -261,6 +261,12 @@ class FocusEntity(BaseModel):
     badge: Annotated[
         str | None, Field(description='A/B badge for ambiguity candidates')
     ] = None
+    feature: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description='GeoJSON Feature for the entity, inline so the app needs no extra fetch'
+        ),
+    ] = None
 
 
 class MapFocus(BaseModel):
