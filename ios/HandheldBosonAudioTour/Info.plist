@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Handheld Boson Audio Tour</string>
+	<string>RoamAlong</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -66,11 +66,11 @@
 		<string>Allow $(PRODUCT_NAME) to access your precise location</string>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Handheld uses your location to prefetch nearby landmarks and guide your walking tour.</string>
+	<string>RoamAlong uses your location to prefetch nearby landmarks and guide your walking tour.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Handheld uses your microphone for live two-way voice conversation with your Boson AI tour guide.</string>
+	<string>RoamAlong uses your microphone for live two-way voice conversation with your Boson AI tour guide.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Handheld uses AirPods head motion to know which building or facade you are looking at.</string>
+	<string>RoamAlong uses AirPods head motion to know which building or facade you are looking at.</string>
 	<key>RCTMetroPort</key>
 	<string>$(RCT_METRO_PORT)</string>
 	<key>RCTNewArchEnabled</key>

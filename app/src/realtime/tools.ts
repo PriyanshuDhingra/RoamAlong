@@ -113,7 +113,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "lookup_place_reviews_and_facts",
     description:
-      "Call this whenever the user asks about a restaurant, cafe, shop, building, or local fact that is NOT yet covered in the prefetched N/S/E/W context, OR when they ask for reviews, ratings, popular dishes, or opening hours for a nearby place. Pair this with `web_search` if live Google Maps / Yelp reviews or current web facts are needed.",
+      "Call this whenever the user asks about a specific named place (building, statue, monument, artwork, restaurant, cafe, shop) or a local fact that is NOT word-for-word covered in your briefing or an earlier tool result, even if you think you know it, and even before they agree to a tour. Never answer such a question from memory; OR when they ask for reviews, ratings, popular dishes, or opening hours for a nearby place. Pair this with `web_search` if live Google Maps / Yelp reviews or current web facts are needed.",
     parameters: {
       type: "object",
       properties: {
@@ -258,9 +258,15 @@ async function handleSaveCalibration(
   ctx: ToolExecutionContext
 ): Promise<ToolResult> {
   const current = ctx.getProfile();
+  // Higgs sometimes sends topics as one string ("architecture, history") instead of an array.
   const topics = Array.isArray(args.topics)
     ? (args.topics as TourTopic[])
-    : current.topics;
+    : typeof args.topics === "string" && args.topics.trim()
+      ? (args.topics
+          .split(/[,;]|\band\b/)
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean) as TourTopic[])
+      : current.topics;
   const story_style =
     typeof args.story_style === "string"
       ? (args.story_style as UserCalibrationProfile["story_style"])
@@ -282,7 +288,7 @@ async function handleSaveCalibration(
     proactivity,
     languages,
     mode,
-    voice: current.voice || "mia",
+    voice: current.voice || "oliver",
     updatedAt: Date.now(),
   };
   ctx.setProfile(updated);
@@ -632,9 +638,12 @@ async function handleLookupPlaceReviewsAndFacts(
   const cuisineText = data.cuisine ? ` Cuisine: ${data.cuisine}.` : "";
 
   return {
-    summary: `${data.placeName} (${data.distanceMeters}m ${data.relativeDirection} at ${data.clockPosition}${
-      data.address ? `, ${data.address}` : ""
-    }): ${data.answerSummary}${cuisineText}${hoursText} Vibe & reviews: ${
+    // Without an OSM match the server has no real position, so it reports 0 m; don't let the guide say "right here".
+    summary: `${data.placeName} (${
+      data.foundInOsm
+        ? `${data.distanceMeters}m ${data.relativeDirection} at ${data.clockPosition}`
+        : "exact position unknown"
+    }${data.address ? `, ${data.address}` : ""}): ${data.answerSummary}${cuisineText}${hoursText} Vibe & reviews: ${
       data.reviewAndVibeSynthesis
     } (If the user asked for specific Google Maps ratings or live customer quotes, also call web_search with "${
       data.suggestWebSearchQuery
@@ -693,10 +702,11 @@ async function handlePlanOrUpdateRoute(
   ctx: ToolExecutionContext,
   savedProfile?: UserCalibrationProfile
 ): Promise<ToolResult> {
-  const mode: TourMode =
-    args.mode === "guided_tour" ? "guided_tour" : "wandering";
-  const maxStops = Math.min(12, Math.max(2, Number(args.max_stops || 8)));
   const current = savedProfile ?? ctx.getProfile();
+  // Keep the current mode unless the model asks for one; a bare "make it 5 stops" must not drop the tour.
+  const mode: TourMode =
+    args.mode === "guided_tour" || args.mode === "wandering" ? args.mode : current.mode;
+  const maxStops = Math.min(12, Math.max(2, Number(args.max_stops || 8)));
 
   if (mode === "guided_tour" && !current.calibrated) {
     return {
@@ -769,7 +779,7 @@ async function handlePlanOrUpdateRoute(
     .join(", ");
 
   return {
-    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops: ${stopNames}. Review that once and ask if it sounds good. They can ask for fewer or more stops before they agree; then call this again with max_stops. If they already agreed, guide them to stop 1 and do not replan.`,
+    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops (for your reference, do not read them all out): ${stopNames}. Review it once in two short sentences: stop count, time, and the first two stops only, then ask if it sounds good. They can ask for fewer or more stops before they agree; then call this again with max_stops. If they already agreed, guide them to stop 1 and do not replan.`,
     detail: route,
   };
 }

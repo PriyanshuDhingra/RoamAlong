@@ -39,7 +39,7 @@ export async function fetchWikipediaSummaryByTag(
     )}`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
         Accept: "application/json",
       },
       signal: controller.signal,
@@ -85,7 +85,7 @@ export async function fetchWikipediaGeoSearch(
     const url = `https://en.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${point.lat}|${point.lon}&gsradius=${radiusMeters}&gslimit=${limit}&format=json`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
       },
       signal: controller.signal,
     });

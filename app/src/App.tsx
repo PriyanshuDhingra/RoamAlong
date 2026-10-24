@@ -26,6 +26,9 @@ import { haversineMeters } from "../../shared/geo.js";
 import { MinimalMap } from "./components/MinimalMap.js";
 import { VoiceChrome } from "./components/VoiceChrome.js";
 
+/** Demo-page walk speed: about four times walking pace, so a seated tester covers a stop in ~30 s. */
+const DEMO_WALK_SPEED_MPS = 6;
+
 export const App: React.FC = () => {
   // Supports remote server URL when phone and backend are on different networks
   // via ?server=https://your-tunnel.trycloudflare.com or VITE_API_BASE_URL / EXPO_PUBLIC_API_URL
@@ -85,6 +88,7 @@ export const App: React.FC = () => {
   const heartbeatRef = useRef(heartbeat);
   heartbeatRef.current = heartbeat;
   const activeRouteRef = useRef(activeRoute);
+  const handleStartTourRef = useRef<() => Promise<void>>(async () => {});
   const tourAcceptedRef = useRef(false);
   const routeProposedAtRef = useRef(0);
 
@@ -120,7 +124,7 @@ export const App: React.FC = () => {
         {
           onStateChange: () => forceRender((n) => n + 1),
           onEventLog: (ev) =>
-            setEventLogs((prev) => [ev, ...prev.slice(0, 59)]),
+            setEventLogs((prev) => [ev, ...prev.slice(0, 199)]),
           onTranscriptUpdate: (items) => setTranscript(items),
           onMicLevel: (rms) => setMicLevel(rms),
         }
@@ -180,6 +184,64 @@ export const App: React.FC = () => {
 
     return unsub;
   }, [locationManager]);
+
+  // Desktop demo page (DemoShell) runs this app in an iframe and drives it with postMessage.
+  useEffect(() => {
+    if (window.parent === window) return;
+    const onMessage = async (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return;
+      const msg = ev.data as { type?: string; action?: string; text?: string; speed?: number };
+      if (msg?.type !== "ROAMALONG_DEMO") return;
+      switch (msg.action) {
+        case "start":
+          await handleStartTourRef.current();
+          break;
+        case "say":
+          if (!msg.text) return;
+          if (rtClient.state !== "open") await handleStartTourRef.current();
+          rtClient.sendUserUtterance(msg.text);
+          break;
+        case "autowalk":
+          if (locationManager.isAutoWalking()) locationManager.stopAutoWalk();
+          else if (activeRouteRef.current) {
+            locationManager.startAutoWalk(
+              activeRouteRef.current.polyline,
+              msg.speed ?? DEMO_WALK_SPEED_MPS
+            );
+          }
+          break;
+        case "gps":
+          locationManager.enableDeviceGps(true);
+          break;
+        case "reset_location":
+          locationManager.stopAutoWalk();
+          locationManager.teleport(43.6595, -79.3912, 0);
+          break;
+      }
+      forceRender((n) => n + 1);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [locationManager, rtClient]);
+
+  useEffect(() => {
+    if (window.parent === window) return;
+    // The demo walk is fast, so hold still while Oliver talks; otherwise he'd describe stops already passed.
+    locationManager.setAutoWalkPaused(rtClient.activity === "speaking");
+    window.parent.postMessage(
+      {
+        type: "ROAMALONG_STATE",
+        connection: rtClient.state,
+        activity: rtClient.activity,
+        mode: profile.mode,
+        calibrated: profile.calibrated,
+        stops: activeRoute?.stops.length ?? 0,
+        autoWalking: locationManager.isAutoWalking(),
+        gps: location.source === "device_gps",
+      },
+      window.location.origin
+    );
+  });
 
   useEffect(() => {
     if (!debugMode) return;
@@ -359,6 +421,8 @@ export const App: React.FC = () => {
     }
   };
 
+  handleStartTourRef.current = handleStartTour;
+
   const handleToggleConnect = async () => {
     if (rtClient.state === "open" || rtClient.state === "connecting") {
       setMicActive(false);
@@ -452,9 +516,9 @@ export const App: React.FC = () => {
       publishRoute(route);
       if (rtClient.state === "open") {
         rtClient.sendSessionUpdate();
-        const stopList = route.stops.map((stop) => stop.poi.name).join(", ");
+        const firstStops = route.stops.slice(0, 2).map((stop) => stop.poi.name).join(" and ");
         rtClient.sendUserText(
-          `I switched to Tours. The route "${route.title}" is ready: ${stopList}. About ${route.estimatedDurationMinutes} minutes. Review that tour once and ask if it sounds good. If I want fewer or more stops, replan. After I agree without asking for a change, guide me to the first stop.`,
+          `I switched to Tours. The route "${route.title}" is ready: ${route.stops.length} stops, starting with ${firstStops}. About ${route.estimatedDurationMinutes} minutes. Review it in two short sentences (stop count, time, first two stops; do not list the rest) and ask if it sounds good. If I want fewer or more stops, replan. After I agree without asking for a change, guide me to the first stop.`,
           false,
           true
         );

@@ -30,10 +30,21 @@ export function createApp() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  // One line per API call, so phone sessions can be followed from the server log.
+  app.use("/api", (req, _res, next) => {
+    const b = req.body ?? {};
+    const where = typeof b.lat === "number" ? ` @${b.lat.toFixed(5)},${b.lon.toFixed(5)}` : "";
+    const mode = b.profile?.mode ? ` mode=${b.profile.mode} calibrated=${b.profile.calibrated}` : "";
+    console.log(`[api] ${new Date().toISOString().slice(11, 19)} ${req.method} ${req.path}${where}${mode}`);
+    next();
+  });
 
   app.get("/api/voice/filler", async (req, res) => {
-    const voice = typeof req.query.voice === "string" ? req.query.voice : "mia";
-    const filler = await getToolFiller(voice);
+    const voice = typeof req.query.voice === "string" ? req.query.voice : "oliver";
+    const filler = await getToolFiller(
+      voice,
+      req.query.kind === "route" ? "route" : "lookup"
+    );
     if (!filler) {
       res.status(503).json({ error: "Filler unavailable" });
       return;
@@ -186,6 +197,7 @@ export function createApp() {
 
       res.json(result);
     } catch (err) {
+      console.error("[api] on-demand lookup failed:", err instanceof Error ? err.message : err);
       res.status(500).json({
         error:
           err instanceof Error ? err.message : "On-demand research failed",
@@ -300,7 +312,7 @@ if (isMain) {
   const app = createApp();
   app.listen(port, () => {
     console.log(
-      `[Handheld Boson Server] Listening on http://localhost:${port}`
+      `[RoamAlong Server] Listening on http://localhost:${port}`
     );
   });
 }

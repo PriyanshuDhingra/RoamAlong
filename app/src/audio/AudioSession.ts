@@ -6,6 +6,8 @@ import {
 } from "./resample.js";
 
 export const BOSON_AUDIO_RATE = 24000;
+/** Frames quieter than this (and outside a 700 ms hangover after speech) are sent as silence. */
+export const MIC_GATE_RMS = 0.008;
 
 const PLAYBACK_WORKLET_CODE = `
 class PlaybackRingProcessor extends AudioWorkletProcessor {
@@ -19,6 +21,8 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
     this.played = 0;
     this.queued = 0;
     this.tick = 0;
+    this.gain = 1;
+    this.targetGain = 1;
 
     this.port.onmessage = (e) => {
       const msg = e.data;
@@ -34,6 +38,8 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
             this.read = (this.read + 1) % this.size;
           }
         }
+      } else if (msg.type === "gain") {
+        this.targetGain = msg.value;
       } else if (msg.type === "reset_turn") {
         this.played = 0;
         this.queued = 0;
@@ -43,6 +49,7 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
         this.read = this.write;
         this.played = 0;
         this.queued = 0;
+        this.gain = this.targetGain = 1;
         this.port.postMessage({ type: "flushed", played: playedCount, id: msg.id });
       }
     };
@@ -52,8 +59,10 @@ class PlaybackRingProcessor extends AudioWorkletProcessor {
     const out = outputs[0][0];
     if (!out) return true;
     for (let i = 0; i < out.length; i++) {
+      // ~5 ms ramp so ducking never clicks
+      this.gain += (this.targetGain - this.gain) * 0.01;
       if (this.available > 0) {
-        out[i] = this.ring[this.read];
+        out[i] = this.ring[this.read] * this.gain;
         this.read = (this.read + 1) % this.size;
         this.available--;
         this.played++;
@@ -219,6 +228,14 @@ export class AudioSession {
     }
   }
 
+  /**
+   * Turns the guide's voice down (or back up) immediately, without discarding queued audio. Used for local
+   * barge-in: the user starts talking, we duck at once, and flush only when Boson confirms `speech_started`.
+   */
+  setPlaybackGain(value: number): void {
+    this.playbackNode?.port.postMessage({ type: "gain", value });
+  }
+
   resetTurnCounter(): void {
     this.playbackNode?.port.postMessage({ type: "reset_turn" });
   }
@@ -274,7 +291,7 @@ export class AudioSession {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         channelCount: 1,
       },
     });
@@ -299,7 +316,9 @@ export class AudioSession {
       const rms = Math.sqrt(sum / rawFrame.length);
       onMicLevel?.(Math.min(1, rms * 4));
       const now = performance.now();
-      if (rms >= 0.03) speechOpenUntil = now + 450;
+      // Gate only true silence. The old 0.03 gate zeroed normal speech once iOS echo cancellation lowered the
+      // mic during guide playback, so Boson never heard the user interrupt.
+      if (rms >= MIC_GATE_RMS) speechOpenUntil = now + 700;
       const speaking = now < speechOpenUntil;
       const frame = speaking
         ? rawFrame

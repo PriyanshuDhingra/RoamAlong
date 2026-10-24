@@ -91,6 +91,7 @@ export class LocationManager {
   private analogHeadingDeg = 0;
   private analogSpeedMps = 0;
   private simulationLocked = false;
+  private autoWalkPaused = false;
 
   constructor() {
     this.setupExpoNativeBridgeListener();
@@ -374,17 +375,18 @@ export class LocationManager {
   /**
    * Starts continuous simulated walking either along a Guided Tour route or forward along current heading.
    */
-  startAutoWalk(waypoints?: GeoPoint[]): void {
+  startAutoWalk(waypoints?: GeoPoint[], speedMps?: number): void {
+    // Read the speed first: stopAnalogMove() zeroes it, which used to drop every walk to 1.25 m/s.
+    const requested = speedMps ?? this.snapshot.speedMps;
     this.holdSimulation();
     this.stopAnalogMove();
     this.stopAutoWalk();
     this.autoWalkWaypoints = waypoints && waypoints.length > 0 ? waypoints : [];
     this.autoWalkIdx = 0;
-    if (this.snapshot.speedMps < 0.4) {
-      this.snapshot.speedMps = 1.25;
-    }
+    this.snapshot.speedMps = requested >= 0.4 ? requested : 1.25;
 
     this.autoWalkTimer = setInterval(() => {
+      if (this.autoWalkPaused) return;
       const speed = this.snapshot.speedMps || 1.2;
       if (this.autoWalkWaypoints.length > 0) {
         const target = this.autoWalkWaypoints[this.autoWalkIdx];
@@ -425,6 +427,11 @@ export class LocationManager {
       clearInterval(this.autoWalkTimer);
       this.autoWalkTimer = null;
     }
+  }
+
+  /** Holds the simulated walker in place (e.g. while the guide is talking) without ending the walk. */
+  setAutoWalkPaused(paused: boolean): void {
+    this.autoWalkPaused = paused;
   }
 
   isAutoWalking(): boolean {

@@ -24,7 +24,7 @@ export async function reverseGeocodeOsm(
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${point.lat}&lon=${point.lon}&zoom=18&addressdetails=1`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
         Accept: "application/json",
       },
       signal: controller.signal,
@@ -82,7 +82,7 @@ export async function searchPlaceNominatim(
   )}&limit=5`;
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+      "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
       Accept: "application/json",
     },
   });

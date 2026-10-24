@@ -7,6 +7,55 @@ import {
 } from "./tools.js";
 
 const BOSON_WS_URL = "wss://api.boson.ai/v1/realtime";
+/** Mic level (0..1, ≈ RMS × 4) that counts as the user talking over the guide; above typical echo residue. */
+const LOCAL_BARGE_IN_LEVEL = 0.22;
+const TOPIC_KEYWORDS: Record<string, RegExp> = {
+  history: /\bhistor/,
+  architecture: /\barchitect|\bbuilding/,
+  art: /\barts?\b|\bartwork|\bmural|\bsculpt/,
+  engineering: /\bengineer/,
+  food: /\bfood|\beat|\brestaurant|\bcafe|\bcoffee/,
+  nature: /\bnature|\bpark|\btrees?\b|\bgarden/,
+  music: /\bmusic/,
+  trivia: /\btrivia|\bweird|\bquirky|\bfun facts?/,
+  news: /\bnews/,
+};
+
+// A question about one specific place ("what's that monument?", "tell me about the Naylor Building").
+const PLACE_QUESTION =
+  /\b(what|what's|whats|who|which|tell me|qu'est|c'est quoi|quel|quelle|qui|parle|raconte|dis-moi)\b|\?/i;
+const PLACE_CUE =
+  /\b(building|statue|monument|memorial|sculpture|church|tower|hall|college|museum|house|that|this|over there|bâtiment|église)\b|\b[A-Z][a-z]+ [A-Z][a-z]+/;
+const NOT_A_PLACE_QUESTION =
+  /\b(next stop|route|tour|how (far|long)|hungry|breakfast|coffee|lunch|dinner|restaurant|cafe|café|eat|detour)\b/i;
+
+function isPlaceQuestion(text: string): boolean {
+  return PLACE_QUESTION.test(text) && PLACE_CUE.test(text) && !NOT_A_PLACE_QUESTION.test(text);
+}
+
+/** Rough language guess for typed lines and lookup answers; Higgs otherwise tends to reply in English. */
+function detectLanguage(text: string): string | null {
+  if (/[\u0600-\u06FF]/.test(text)) return "Arabic";
+  if (/[\u0900-\u097F]/.test(text)) return "Hindi";
+  const french = text
+    .toLowerCase()
+    .match(/\b(le|la|les|de|du|des|est|qui|quoi|quel|quelle|parle|moi|c'est|qu'est|pourquoi|où|s'il|plaît|cette|ce|une|un|et|je|tu|vous)\b/g);
+  return french && french.length >= 3 ? "French" : null;
+}
+
+/** Strips question phrasing so the lookup searches for the place, not the sentence. */
+function placeQuery(question: string): string {
+  const cleaned = question
+    .replace(
+      /\b(what('s| is| does| was| are)?|who|which|tell me( more)?( about)?|can you|could you|and|the|it|that|this|mean|means|over there|right there|here|about|qu'est-ce que|c'est quoi|quel(le)?|qui|est|ce|cette|statue de|de|la|le|du|parle-moi|parle|moi|raconte-moi|dis-moi|s'il te plaît|s'il vous plaît|plaît)\b/gi,
+      " "
+    )
+    .replace(/[?.!,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length >= 3 ? cleaned : question;
+}
+
 const SLOW_TOOLS = new Set([
   "get_spatial_briefing",
   "deep_dive_poi",
@@ -78,6 +127,11 @@ export class BosonRealtimeClient {
   private handledCallIds = new Set<string>();
   private responseInFlight = false;
   private toolBatchInFlight = false;
+  /** The user spoke while client tools were running: Boson's VAD answers them, so skip our response.create. */
+  private toolBatchSuperseded = false;
+  /** Local barge-in: consecutive loud mic frames while the guide talks, and the timer that undoes a false duck. */
+  private loudFrames = 0;
+  private duckTimer: ReturnType<typeof setTimeout> | null = null;
   private activeResponseId: string | null = null;
   private cancelledResponseId: string | null = null;
   private currentAssistantItemId: string | null = null;
@@ -91,6 +145,14 @@ export class BosonRealtimeClient {
   private fullTextById = new Map<string, string>();
   private turnAudioDone = false;
   private responseSpoke = false;
+  /** Boson rejects turn_detection in any session.update after the first (HTTP 400), so send it once. */
+  private turnDetectionSent = false;
+  /** The user's answer to the opening vibe question, until save_calibration_profile has been called for it. */
+  private unsavedCalibrationAnswer: string | null = null;
+  private calibrationNudged = false;
+  /** Set while the app looks up a place the user asked about; Boson's own auto-reply to that turn is dropped. */
+  private placeLookupPending = false;
+  private droppedResponseIds = new Set<string>();
   private fillerEpoch = 0;
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private fillerActive = false;
@@ -129,6 +191,7 @@ export class BosonRealtimeClient {
       return;
     }
     this.connecting = true;
+    this.turnDetectionSent = false;
     this.audio.unlock();
     this.setState("connecting");
 
@@ -253,6 +316,8 @@ export class BosonRealtimeClient {
         : undefined
     );
 
+    const firstUpdate = !this.turnDetectionSent;
+    this.turnDetectionSent = true;
     this.send({
       type: "session.update",
       session: {
@@ -266,17 +331,23 @@ export class BosonRealtimeClient {
             format: { type: "audio/pcm", rate: BOSON_AUDIO_RATE },
             transcription: { model: "higgs-stt-3.1" },
             noise_reduction: { type: "near_field" },
-            turn_detection: {
-              type: "semantic_vad",
-              threshold: 0.82,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 650,
-              min_speech_duration: 0.4,
-            },
+            ...(firstUpdate && {
+              turn_detection: {
+                type: "semantic_vad",
+                threshold: 0.82,
+                prefix_padding_ms: 1000,
+                // 650 ms split "And what… can you tell me about X?" into two turns. Boson only accepts
+                // turn_detection in the first session.update, so tune it here.
+                silence_duration_ms: 850,
+                // 0.4 s made short interjections ("wait—") never register and long ones land late; Boson's
+                // default is 0.125 s. 0.2 s still ignores coughs and clicks.
+                min_speech_duration: 0.2,
+              },
+            }),
           },
           output: {
             format: { type: "audio/pcm", rate: BOSON_AUDIO_RATE },
-            voice: profile.voice || "mia",
+            voice: profile.voice || "oliver",
           },
         },
       },
@@ -287,13 +358,16 @@ export class BosonRealtimeClient {
     this.audio.unlock();
     try {
       await this.audio.startMicrophone((base64Pcm) => {
-        if (this.state === "open" && !this.toolBatchInFlight) {
+        if (this.state === "open") {
           this.send({
             type: "input_audio_buffer.append",
             audio: base64Pcm,
           });
         }
-      }, this.onMicLevel);
+      }, (level) => {
+        this.detectLocalBargeIn(level);
+        this.onMicLevel?.(level);
+      });
     } catch (err) {
       this.appendTranscript({
         id: `mic_err_${Date.now()}`,
@@ -389,11 +463,18 @@ export class BosonRealtimeClient {
   }
 
   private async handleServerEvent(event: ServerEvent): Promise<void> {
-    this.onEventLog?.(event);
+    // Streaming deltas arrive dozens per second and pushed everything useful out of the Events panel.
+    if (!String(event.type).endsWith(".delta")) this.onEventLog?.(event);
 
     switch (event.type) {
       case "response.created": {
         const resp = event.response as { id?: string } | undefined;
+        if (this.placeLookupPending && resp?.id) {
+          // VAD's auto-reply to a place question; it would answer from memory, so drop it.
+          this.droppedResponseIds.add(String(resp.id));
+          this.send({ type: "response.cancel" });
+          break;
+        }
         this.activeResponseId = resp?.id ? String(resp.id) : null;
         this.responseInFlight = true;
         this.turnAudioDone = false;
@@ -433,6 +514,12 @@ export class BosonRealtimeClient {
       case "conversation.item.input_audio_transcription.completed": {
         const transcript = String(event.transcript || "").trim();
         if (transcript) {
+          if (!this.toolCtx.getProfile().calibrated) {
+            this.unsavedCalibrationAnswer = transcript;
+            this.calibrationNudged = false;
+          } else if (isPlaceQuestion(transcript)) {
+            void this.answerPlaceQuestion(transcript);
+          }
           this.appendTranscript({
             id: String(event.item_id || `utt_${Date.now()}`),
             role: "user",
@@ -495,17 +582,39 @@ export class BosonRealtimeClient {
 
       case "response.done": {
         const resp = event.response as
-          | { output?: Record<string, unknown>[] }
+          | { id?: string; output?: Record<string, unknown>[]; status?: string }
           | undefined;
+        if (resp?.id && this.droppedResponseIds.has(resp.id)) break;
         const outputItems = resp?.output ?? [];
         const clientCalls = outputItems.filter(
           (item) =>
             item.type === "function_call" && item.executor !== "server"
         );
 
+        if (clientCalls.some((call) => call.name === "save_calibration_profile")) {
+          this.unsavedCalibrationAnswer = null;
+        }
         if (clientCalls.length > 0) {
           await this.handleClientToolBatch(clientCalls);
         } else {
+          // Higgs sometimes answers the vibe question ("Saving those preferences now") without calling the tool,
+          // which stalls the tour. Nudge it once per answer; the nudge waits for the spoken reply to finish.
+          const answer = this.unsavedCalibrationAnswer;
+          if (
+            answer &&
+            resp?.status === "completed" &&
+            !this.queuedTurn &&
+            !this.toolCtx.getProfile().calibrated
+          ) {
+            if (!this.calibrationNudged) {
+              this.calibrationNudged = true;
+              this.queuedTurn = `[CALIBRATION] I answered "${answer}". If that tells you what I want to hear about, call save_calibration_profile now without speaking first. Otherwise ask me again in one short line.`;
+            } else {
+              // It ignored the nudge too (seen in testing: "Saving your interests…", no call). Save it ourselves.
+              this.unsavedCalibrationAnswer = null;
+              void this.saveCalibrationFromAnswer(answer);
+            }
+          }
           this.turnAudioDone = true;
           if (!this.responseSpoke) {
             this.responseInFlight = false;
@@ -547,7 +656,14 @@ export class BosonRealtimeClient {
     });
 
     if (validCalls.length === 0) return;
-    if (
+    // In Tours, saving the profile also builds the route (~15–20 s), so it needs a filler like the lookups.
+    const buildsRoute =
+      this.toolCtx.getProfile().mode === "guided_tour" &&
+      validCalls.some((call) => call.name === "save_calibration_profile");
+    if (buildsRoute) {
+      // Plays even after a spoken line ("Got it"): the route takes long enough that silence reads as a hang.
+      this.scheduleToolFiller(this.responseSpoke ? 2500 : 0, "route");
+    } else if (
       !this.responseSpoke &&
       validCalls.some((call) => SLOW_TOOLS.has(String(call.name)))
     ) {
@@ -606,6 +722,10 @@ export class BosonRealtimeClient {
       this.send(out);
     }
     this.toolBatchInFlight = false;
+    if (this.toolBatchSuperseded) {
+      this.toolBatchSuperseded = false;
+      return;
+    }
     this.send({ type: "response.create" });
   }
 
@@ -615,34 +735,146 @@ export class BosonRealtimeClient {
    * 2. Sends `conversation.item.truncate` with the exact `audio_end_ms` heard by the user.
    */
   private isStaleResponse(respId: string): boolean {
+    if (this.droppedResponseIds.has(respId)) return true;
     if (this.cancelledResponseId && respId === this.cancelledResponseId) {
       return true;
     }
     return Boolean(this.activeResponseId && respId !== this.activeResponseId);
   }
 
-  private scheduleToolFiller(delayMs: number): void {
-    if (this.responseSpoke || this.fillerActive || this.fillerTimer) return;
+  /**
+   * Higgs rarely calls lookup_place_reviews_and_facts on its own and answers place questions from memory
+   * (testing: Notre Place "means the star", the Naylor Building "houses the Faculty of Law"). For those
+   * questions the app runs the lookup itself and has the guide answer from the result.
+   */
+  /**
+   * A line the user typed (or clicked in the demo page), handled like speech: shown as their caption,
+   * place questions go through the app-side lookup, and non-English lines get a language reminder.
+   */
+  sendUserUtterance(text: string): void {
+    if (this.state !== "open") return;
+    this.appendTranscript({
+      id: `user_${Date.now()}`,
+      role: "user",
+      text,
+      timestamp: Date.now(),
+      status: "done",
+    });
+    if (!this.toolCtx.getProfile().calibrated) {
+      this.unsavedCalibrationAnswer = text;
+      this.calibrationNudged = false;
+    } else if (isPlaceQuestion(text)) {
+      if (this.responseSpoke || this.fillerActive) void this.handleBargeIn();
+      if (this.startPlaceLookup(text)) return;
+    }
+    const language = detectLanguage(text);
+    this.sendUserText(
+      language ? `${text}\n[Reply in ${language}, and keep speaking ${language} until I switch.]` : text,
+      true,
+      true
+    );
+  }
+
+  private startPlaceLookup(question: string): boolean {
+    if (this.placeLookupPending || this.toolBatchInFlight) return false;
+    void this.answerPlaceQuestion(question);
+    return true;
+  }
+
+  private async answerPlaceQuestion(question: string): Promise<void> {
+    if (this.placeLookupPending || this.toolBatchInFlight) return;
+    this.placeLookupPending = true;
+    if (this.activeResponseId) {
+      this.droppedResponseIds.add(this.activeResponseId);
+      this.activeResponseId = null;
+      this.send({ type: "response.cancel" });
+      await this.audio.flushPlayback();
+    }
+    this.responseInFlight = true;
+    this.responseSpoke = false;
+    this.setActivity("searching");
+    this.scheduleToolFiller(0);
+    let summary: string;
+    try {
+      const result = await executeClientTool(
+        "lookup_place_reviews_and_facts",
+        { query: placeQuery(question), question_type: "history_and_facts" },
+        this.toolCtx
+      );
+      summary = result.summary;
+    } catch {
+      summary = "The lookup failed.";
+    }
+    this.placeLookupPending = false;
+    this.responseInFlight = false;
+    this.sendUserText(
+      `[PLACE_LOOKUP] I asked: "${question}". Lookup result: ${summary} Answer from this result in one or two sentences, in ${detectLanguage(question) ?? "the language I asked in"}: say what the place is and the one most interesting fact, and tell me which way it is if the result gives a direction. Do not mention the tour route or whether it is a stop. Only if the result is clearly about a different place, say which place you found and ask if that is the one I meant.`,
+      true,
+      true
+    );
+  }
+
+  /** Saves the profile from the user's own words when the model keeps skipping save_calibration_profile. */
+  private async saveCalibrationFromAnswer(answer: string): Promise<void> {
+    const text = answer.toLowerCase();
+    const topics = Object.entries(TOPIC_KEYWORDS)
+      .filter(([, pattern]) => pattern.test(text))
+      .map(([topic]) => topic);
+    if (topics.length === 0) return;
+    const profile = this.toolCtx.getProfile();
+    this.toolBatchInFlight = true;
+    this.responseInFlight = true;
+    this.setActivity("thinking");
+    if (profile.mode === "guided_tour") {
+      this.scheduleToolFiller(this.responseSpoke ? 2500 : 0, "route");
+    }
+    const result = await executeClientTool(
+      "save_calibration_profile",
+      {
+        topics,
+        mode: profile.mode,
+        story_style: profile.story_style,
+        proactivity: profile.proactivity,
+      },
+      this.toolCtx
+    );
+    this.toolBatchInFlight = false;
+    this.responseInFlight = false;
+    this.sendUserText(`[PROFILE_SAVED] ${result.summary}`, true, true);
+  }
+
+  private scheduleToolFiller(
+    delayMs: number,
+    kind: "lookup" | "route" = "lookup"
+  ): void {
+    const ignoreSpoken = kind === "route";
+    if ((this.responseSpoke && !ignoreSpoken) || this.fillerActive || this.fillerTimer) return;
+    const epoch = this.fillerEpoch;
     this.fillerTimer = setTimeout(() => {
       this.fillerTimer = null;
-      if (!this.responseSpoke) void this.playToolFiller();
+      if (ignoreSpoken ? epoch === this.fillerEpoch && this.toolBatchInFlight : !this.responseSpoke) {
+        void this.playToolFiller(kind);
+      }
     }, delayMs);
   }
 
-  private async playToolFiller(): Promise<void> {
+  private async playToolFiller(kind: "lookup" | "route"): Promise<void> {
     const epoch = ++this.fillerEpoch;
-    const voice = this.toolCtx.getProfile().voice || "mia";
+    const voice = this.toolCtx.getProfile().voice || "oliver";
     try {
       const res = await fetch(
-        `${this.toolCtx.apiBaseUrl}/api/voice/filler?voice=${encodeURIComponent(voice)}`
+        `${this.toolCtx.apiBaseUrl}/api/voice/filler?voice=${encodeURIComponent(voice)}&kind=${kind}`
       );
-      if (!res.ok || epoch !== this.fillerEpoch || this.responseSpoke) return;
+      // A route filler may follow a spoken line; the epoch still stops it once the next answer starts.
+      const superseded = () =>
+        epoch !== this.fillerEpoch || (kind !== "route" && this.responseSpoke);
+      if (!res.ok || superseded()) return;
       const data = (await res.json()) as { text?: string; audioBase64?: string };
-      if (!data.audioBase64 || epoch !== this.fillerEpoch || this.responseSpoke) return;
+      if (!data.audioBase64 || superseded()) return;
       this.fillerActive = true;
       this.setActivity("speaking");
       const id = `filler_${epoch}`;
-      const text = data.text || "One sec, I'm checking.";
+      const text = data.text || "One sec.";
       this.currentAssistantItemId = id;
       this.fullTextById.set(id, text);
       this.appendTranscript({
@@ -696,9 +928,44 @@ export class BosonRealtimeClient {
     if (wasPlaying) void this.audio.flushPlayback();
   }
 
+  /**
+   * Instant, local half of barge-in. Boson's `speech_started` needs a network round trip plus VAD time, so as soon
+   * as the mic is clearly loud for ~100 ms while the guide is talking, duck the guide to 15 %. Boson's event then
+   * flushes for real; if it never comes (a cough, a passing car), the volume comes back after 900 ms.
+   */
+  private detectLocalBargeIn(level: number): void {
+    const guideTalking = this.activity === "speaking" || this.fillerActive;
+    if (!guideTalking) {
+      this.loudFrames = 0;
+      return;
+    }
+    this.loudFrames = level >= LOCAL_BARGE_IN_LEVEL ? this.loudFrames + 1 : 0;
+    if (this.loudFrames < 2 || this.duckTimer) return; // capture frames are 50 ms
+    this.audio.setPlaybackGain(0.15);
+    this.duckTimer = setTimeout(() => {
+      this.duckTimer = null;
+      this.audio.setPlaybackGain(1);
+    }, 900);
+  }
+
+  private clearDuck(): void {
+    if (this.duckTimer) {
+      clearTimeout(this.duckTimer);
+      this.duckTimer = null;
+    }
+    this.loudFrames = 0;
+  }
+
   private async handleBargeIn(): Promise<void> {
+    this.clearDuck();
     this.cancelToolFiller();
-    if (this.toolBatchInFlight) return;
+    if (this.toolBatchInFlight) {
+      // Tools are still running: their outputs still go into the conversation, but Boson's VAD now answers
+      // the user's new turn, so don't request another response when the batch finishes.
+      this.toolBatchSuperseded = true;
+      this.setActivity("listening");
+      return;
+    }
     if (this.activeResponseId) {
       this.cancelledResponseId = this.activeResponseId;
     }
@@ -780,6 +1047,7 @@ export class BosonRealtimeClient {
 
   async disconnect(): Promise<void> {
     this.connecting = false;
+    this.clearDuck();
     this.cancelToolFiller();
     this.responseInFlight = false;
     this.toolBatchInFlight = false;

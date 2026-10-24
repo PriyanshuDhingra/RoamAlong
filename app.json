@@ -1,16 +1,17 @@
 {
   "expo": {
-    "name": "Handheld Boson Audio Tour",
+    "name": "RoamAlong",
     "slug": "handheld-boson-audio-tour",
+    "icon": "./assets/icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Handheld uses your microphone for live two-way voice conversation with your Boson AI tour guide.",
-        "NSLocationWhenInUseUsageDescription": "Handheld uses your location to prefetch nearby landmarks and guide your walking tour.",
-        "NSMotionUsageDescription": "Handheld uses AirPods head motion to know which building or facade you are looking at."
+        "NSMicrophoneUsageDescription": "RoamAlong uses your microphone for live two-way voice conversation with your Boson AI tour guide.",
+        "NSLocationWhenInUseUsageDescription": "RoamAlong uses your location to prefetch nearby landmarks and guide your walking tour.",
+        "NSMotionUsageDescription": "RoamAlong uses AirPods head motion to know which building or facade you are looking at."
       },
       "bundleIdentifier": "com.nfldty.handheld-boson-audio-tour"
     },

@@ -91,7 +91,8 @@ function isTourWorthyPoi(tags: Record<string, string>): boolean {
     tags.building !== "yes" &&
     tags.building !== "residential" &&
     tags.building !== "garage" &&
-    Boolean(tags.name)
+    Boolean(tags.name) &&
+    looksLikeLandmarkName(tags)
   ) {
     return true;
   }
@@ -210,7 +211,7 @@ export async function fetchOverpassPoisBatch(
     const res = await fetch(osmApiUrl, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
       },
       signal: controller.signal,
     });
@@ -266,7 +267,7 @@ out center tags 120;
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+          "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
         },
         body: new URLSearchParams({ data: query }),
         signal: controller.signal,
@@ -295,6 +296,20 @@ out center tags 120;
       "; "
     )}`
   );
+}
+
+const SERVICE_WORDS =
+  /\b(caretaking|maintenance|facilities|services|facility|storage|parking|garage|loading|plant|utility|utilities|substation|shed|annex|annexe|portable|trailer|mechanical|boiler|office)\b/i;
+
+/**
+ * Named university/commercial buildings include back-of-house names like "Caretaking" that are not landmarks.
+ * A building without a notability tag needs a multi-word, non-service name to count.
+ */
+function looksLikeLandmarkName(tags: Record<string, string>): boolean {
+  if (tags.wikidata || tags.wikipedia || tags.historic || tags.heritage || tags.tourism) return true;
+  const name = (tags["name:en"] || tags.name || "").trim();
+  if (SERVICE_WORDS.test(name)) return false;
+  return name.split(/\s+/).length >= 2;
 }
 
 function parseOsmElementsWithNodeIndex(

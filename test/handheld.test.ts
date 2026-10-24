@@ -176,7 +176,7 @@ describe("4-Quadrant Prefetch Orchestrator, Client Tool Registry & ProactivityPa
       { direction_filter: "ALL" },
       ctx
     );
-    expect(briefRes.summary).toContain("results near");
+    expect(briefRes.summary).toMatch(/\d+ nearby landmarks/);
     expect(lastHighlight).not.toBeNull();
 
     // 3. Map highlight tool

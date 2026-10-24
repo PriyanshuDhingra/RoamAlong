@@ -106,7 +106,9 @@ export async function processSpatialHeartbeat(
       inFlightTilePromises.set(cacheKey, pending);
     }
     entry = await pending;
-    await savePersistedTile(cacheKey, entry);
+    // Keep a tile only when every sector synthesized; otherwise the next heartbeat retries the failed ones
+    // instead of serving a tile with permanently missing stories.
+    if (isComplete(entry)) await savePersistedTile(cacheKey, entry);
   }
 
   // If the user is actively walking in Wandering Mode (>0.6 m/s), silently pre-warm the next tile ahead
@@ -127,7 +129,7 @@ export async function processSpatialHeartbeat(
             profileKey
           )
             .then(async (res) => {
-              await savePersistedTile(nextCacheKey, res);
+              if (isComplete(res)) await savePersistedTile(nextCacheKey, res);
               return res;
             })
             .finally(() => {
@@ -230,20 +232,30 @@ async function buildTileEntry(
 
     let freshStories: StoryCard[] = [];
     const synthesizedBy: "azure_openai" = "azure_openai";
+    let failed = false;
 
     if (uncachedPois.length > 0) {
-      const res = await synthesizeSectorStories({
-        sector,
-        neighborhood: geoInfo.neighborhood,
-        city: geoInfo.city,
-        countryCode: geoInfo.countryCode,
-        pois: uncachedPois,
-        profile: req.profile,
-      });
-      freshStories = res.stories;
+      try {
+        const res = await synthesizeSectorStories({
+          sector,
+          neighborhood: geoInfo.neighborhood,
+          city: geoInfo.city,
+          countryCode: geoInfo.countryCode,
+          pois: uncachedPois,
+          profile: req.profile,
+        });
+        freshStories = res.stories;
 
-      for (const s of freshStories) {
-        savePersistedPoiStory(s.osmId, s);
+        for (const s of freshStories) {
+          savePersistedPoiStory(s.osmId, s);
+        }
+      } catch (err) {
+        // One slow or failed sector must not fail the whole heartbeat (it used to return HTTP 500 and cache
+        // nothing). The sector is marked "error" and retried on the next heartbeat.
+        failed = true;
+        console.warn(
+          `[Research] ${tileKey} ${sector} synthesis failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
@@ -256,19 +268,16 @@ async function buildTileEntry(
       tileKey: `${tileKey}_${sector}`,
       center: getSectorOffsetCenter(center, sector, 130),
       stories: combinedStories,
-      status: "ready",
+      status: failed ? "error" : "ready",
       synthesizedBy,
       updatedAt: Date.now(),
       latencyMs: Date.now() - sectorStart,
     };
   };
 
-  // Stage 1: Await CENTER + Forward sector immediately so voice guide has zero lag
-  await Promise.all(immediateSectors.map((s) => runSectorSynthesis(s)));
-
-  // Stage 2: Populate fast heuristic placeholders for peripheral sectors immediately,
-  // and let any remaining Azure OpenAI peripheral calls finish in parallel
-  await Promise.all(peripheralSectors.map((s) => runSectorSynthesis(s)));
+  // All five sectors in parallel (CENTER and the forward sector first in the list). Running them in two
+  // sequential stages doubled the cold-tile wait to two Azure round trips.
+  await Promise.all([...immediateSectors, ...peripheralSectors].map((s) => runSectorSynthesis(s)));
 
   return {
     tileKey,
@@ -279,6 +288,10 @@ async function buildTileEntry(
     sectors,
     createdAt: startedAt,
   };
+}
+
+function isComplete(entry: PersistedTileRecord): boolean {
+  return Object.values(entry.sectors).every((s) => s.status !== "error");
 }
 
 function formatHeartbeatResponse(

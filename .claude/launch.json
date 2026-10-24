@@ -33,6 +33,44 @@
       ],
       "cwd": "apps/mobile",
       "port": 8081
+    },
+    {
+      "name": "roamalong-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--import",
+        "tsx/esm",
+        "server/index.ts"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "roamalong-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "roamalong-metro",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "EXPO_PUBLIC_WEB_URL=https://beings-replace-avenue-try.trycloudflare.com",
+        "npx",
+        "expo",
+        "start",
+        "--dev-client",
+        "--port",
+        "8081",
+        "--clear"
+      ],
+      "port": 8081
     }
   ]
 }
