@@ -9,6 +9,10 @@ __pycache__/
 .venv*/
 .pytest_cache/
 .ruff_cache/
+.tools/
+.local/
+scripts/
+dev.cmd
 
 # node
 node_modules/
@@ -26,3 +30,10 @@ data/valhalla/
 
 # probe logs (raw model output; summaries live in docs/boson-findings.md)
 data/probes/
+
+# research app caches and local tooling
+.cache/
+*.log
+captures/
+ext/
+.cursor/

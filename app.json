@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Handheld Boson Audio Tour",
+    "slug": "handheld-boson-audio-tour",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Handheld uses your microphone for live two-way voice conversation with your Boson AI tour guide.",
+        "NSLocationWhenInUseUsageDescription": "Handheld uses your location to prefetch nearby landmarks and guide your walking tour.",
+        "NSMotionUsageDescription": "Handheld uses AirPods head motion to know which building or facade you are looking at."
+      },
+      "bundleIdentifier": "com.nfldty.handheld-boson-audio-tour"
+    },
+    "android": {
+      "permissions": [
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-audio"
+    ]
+  }
+}
