@@ -1,0 +1,18 @@
+{
+  "id": "colleges-and-quads",
+  "title": "Colleges & Quads",
+  "subtitle": "Gothic towers, a modernist hideaway and the oldest colleges",
+  "theme": "How a university made of separate colleges built itself, quad by quad.",
+  "duration_min": 40,
+  "stops": [
+    { "entity_id": "e_519e8170a6", "dwell_s": 90, "angle": ["architecture", "history"] },
+    { "entity_id": "e_5014e6d3a9", "dwell_s": 60, "angle": ["architecture"] },
+    { "entity_id": "e_f741200a8d", "dwell_s": 60, "angle": ["architecture", "history"] },
+    { "entity_id": "e_2ca9e64afb", "dwell_s": 90, "angle": ["architecture", "people"] },
+    { "entity_id": "e_30aac06da4", "dwell_s": 90, "angle": ["history"] },
+    { "entity_id": "e_465f130e85", "dwell_s": 90, "angle": ["people", "history"] },
+    { "entity_id": "e_1f25f93b6e", "dwell_s": 60, "angle": ["art"] }
+  ],
+  "intro": "Start at University College, the founding college, and work through the quads to the Gardiner Museum.",
+  "outro": "Finish at the Gardiner, across from the ROM."
+}

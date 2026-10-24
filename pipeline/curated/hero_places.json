@@ -1,0 +1,234 @@
+{
+  "_doc": "Demo hero places (IMPLEMENTATION_PLAN.md §1.2): a walkable loop around Queen's Park. These get the deep, reviewed material; everything else gets auto cards.",
+  "centre": {
+    "lat": 43.664,
+    "lon": -79.3925
+  },
+  "places": [
+    {
+      "id": "e_2e7be14d24",
+      "name": "Ontario Legislative Building",
+      "kind": "building",
+      "wikidata": "Q980270",
+      "distance_from_queens_park_m": 170,
+      "has_geometry": true,
+      "why": "the pink sandstone legislature at the centre of the park"
+    },
+    {
+      "id": "e_c0abc73a34",
+      "name": "Queen's Park",
+      "kind": "park",
+      "wikidata": "Q1419018",
+      "distance_from_queens_park_m": 78,
+      "has_geometry": false,
+      "why": "the park itself: statues, the old Taddle Creek ravine, how it got its name"
+    },
+    {
+      "id": "e_e7ceaed0e9",
+      "name": "Equestrian Statue of Edward VII",
+      "kind": "monument",
+      "wikidata": "Q122417547",
+      "distance_from_queens_park_m": 388,
+      "has_geometry": true,
+      "why": "a statue that was moved here from Delhi"
+    },
+    {
+      "id": "e_e6050405d6",
+      "name": "Canadian Volunteer Monument",
+      "kind": "artwork",
+      "wikidata": "Q122224535",
+      "distance_from_queens_park_m": 163,
+      "has_geometry": false,
+      "why": "the 1866 Fenian Raids monument in the park"
+    },
+    {
+      "id": "e_1e2753990a",
+      "name": "Royal Ontario Museum",
+      "kind": "building",
+      "wikidata": "Q649250",
+      "distance_from_queens_park_m": 447,
+      "has_geometry": true,
+      "why": "Crystal extension vs the 1914 heritage wings; nav landmark"
+    },
+    {
+      "id": "e_1f25f93b6e",
+      "name": "Gardiner Museum",
+      "kind": "building",
+      "wikidata": "Q2043270",
+      "distance_from_queens_park_m": 458,
+      "has_geometry": true,
+      "why": "ceramics museum across from the ROM"
+    },
+    {
+      "id": "e_2ad34f4699",
+      "name": "Philosopher's Walk",
+      "kind": "park",
+      "wikidata": "Q7186161",
+      "distance_from_queens_park_m": 398,
+      "has_geometry": false,
+      "why": "the path that follows buried Taddle Creek"
+    },
+    {
+      "id": "e_8c17f4f60f",
+      "name": "Taddle Creek",
+      "kind": "river",
+      "wikidata": "Q7674432",
+      "distance_from_queens_park_m": 828,
+      "has_geometry": false,
+      "why": "the lost river under the walk: thread for the whole tour"
+    },
+    {
+      "id": "e_991eb75f3c",
+      "name": "Hart House",
+      "kind": "building",
+      "wikidata": "Q5674187",
+      "distance_from_queens_park_m": 160,
+      "has_geometry": false,
+      "why": "Gothic Revival student centre; Massey family"
+    },
+    {
+      "id": "e_f51a645dde",
+      "name": "Soldiers' Tower",
+      "kind": "monument",
+      "wikidata": "Q7557369",
+      "distance_from_queens_park_m": 315,
+      "has_geometry": true,
+      "why": "WWI memorial carillon beside Hart House"
+    },
+    {
+      "id": "e_519e8170a6",
+      "name": "University College",
+      "kind": "area",
+      "wikidata": "Q3551334",
+      "distance_from_queens_park_m": 355,
+      "has_geometry": true,
+      "why": "1850s founding college; the ghost-story folklore"
+    },
+    {
+      "id": "e_f741200a8d",
+      "name": "Convocation Hall",
+      "kind": "building",
+      "wikidata": "Q2996437",
+      "distance_from_queens_park_m": 429,
+      "has_geometry": true,
+      "why": "rotunda on King's College Circle"
+    },
+    {
+      "id": "e_3bf61a2ee5",
+      "name": "Simcoe Hall",
+      "kind": "building",
+      "wikidata": "Q111668110",
+      "distance_from_queens_park_m": 456,
+      "has_geometry": true,
+      "why": "UofT administration, faces the Circle"
+    },
+    {
+      "id": "e_f17b1738f5",
+      "name": "Louis B. Stewart Observatory",
+      "kind": "building",
+      "wikidata": "Q7826439",
+      "distance_from_queens_park_m": 217,
+      "has_geometry": true,
+      "why": "small observatory that was moved across campus"
+    },
+    {
+      "id": "e_5014e6d3a9",
+      "name": "Knox College",
+      "kind": "area",
+      "wikidata": "Q593199",
+      "distance_from_queens_park_m": 443,
+      "has_geometry": true,
+      "why": "Gothic college on the old observatory site"
+    },
+    {
+      "id": "e_87be8cfdb5",
+      "name": "Wycliffe College",
+      "kind": "area",
+      "wikidata": "Q3570196",
+      "distance_from_queens_park_m": 185,
+      "has_geometry": true,
+      "why": "Anglican college at Hoskin & Queen's Park"
+    },
+    {
+      "id": "e_3e6c41b780",
+      "name": "Regis College",
+      "kind": "building",
+      "wikidata": "Q3423622",
+      "distance_from_queens_park_m": 181,
+      "has_geometry": true,
+      "why": "Jesuit college, home of the Homeless Jesus statue"
+    },
+    {
+      "id": "e_30f25873bb",
+      "name": "Homeless Jesus",
+      "kind": "artwork",
+      "wikidata": "Q16850111",
+      "distance_from_queens_park_m": 209,
+      "has_geometry": false,
+      "why": "bronze bench sculpture with a story about its rejections"
+    },
+    {
+      "id": "e_465f130e85",
+      "name": "Victoria University",
+      "kind": "area",
+      "wikidata": "Q3551503",
+      "distance_from_queens_park_m": 359,
+      "has_geometry": true,
+      "why": "Victoria College, Romanesque, Northrop Frye"
+    },
+    {
+      "id": "e_471c7b7956",
+      "name": "Annesley Hall",
+      "kind": "building",
+      "wikidata": "Q4769020",
+      "distance_from_queens_park_m": 422,
+      "has_geometry": true,
+      "why": "first women's residence in Canada"
+    },
+    {
+      "id": "e_3959dcab6b",
+      "name": "Lillian Massey Building",
+      "kind": "building",
+      "wikidata": "Q6548167",
+      "distance_from_queens_park_m": 494,
+      "has_geometry": true,
+      "why": "Massey family again; links to Hart House"
+    },
+    {
+      "id": "e_5ed8869af7",
+      "name": "St. Basil's Church",
+      "kind": "building",
+      "wikidata": "Q4504990",
+      "distance_from_queens_park_m": 382,
+      "has_geometry": true,
+      "why": "1856 Gothic church on St. Joseph St"
+    },
+    {
+      "id": "e_30aac06da4",
+      "name": "Trinity College",
+      "kind": "area",
+      "wikidata": "Q3551685",
+      "distance_from_queens_park_m": 371,
+      "has_geometry": true,
+      "why": "Tudor-Gothic college beside Philosopher's Walk"
+    },
+    {
+      "id": "e_2ca9e64afb",
+      "name": "Massey College",
+      "kind": "area",
+      "wikidata": "Q2983620",
+      "distance_from_queens_park_m": 411,
+      "has_geometry": true,
+      "why": "1963 Ron Thom modernist college; Robertson Davies"
+    },
+    {
+      "id": "e_275bf2582e",
+      "name": "Medical Sciences Building",
+      "kind": "building",
+      "wikidata": "Q7896486",
+      "distance_from_queens_park_m": 308,
+      "has_geometry": true,
+      "why": "brutalist concrete; insulin-discovery connection"
+    }
+  ]
+}
