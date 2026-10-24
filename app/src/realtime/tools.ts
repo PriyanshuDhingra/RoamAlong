@@ -135,7 +135,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "highlight_on_map",
     description:
-      "Light up a place on the map. Each call adds a place, so call it once per building, street, or neighborhood you are talking about and they all stay visible together. Pass clear_others true only when the previous places should come off the map.",
+      "Light up the one place you are talking about. The previous highlight leaves the map. Call it once for the current place, not for every place you mention.",
     parameters: {
       type: "object",
       properties: {
@@ -157,7 +157,7 @@ export const BOSON_SESSION_TOOLS = [
         },
         clear_others: {
           type: "boolean",
-          description: "True to remove the places already highlighted before adding this one.",
+          description: "Ignored. Only one place is highlighted at a time.",
         },
       },
       required: ["target_type", "label"],
@@ -167,7 +167,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "plan_or_update_route",
     description:
-      "Plan a guided walk from the user's saved preferences, or switch back to wandering. A guided route does not exist until save_calibration_profile has run. If they chose Tours before saying what they want, ask and save first. Do not call this when the user accepts the tour or says let's go. Say a short preamble before calling.",
+      "Plan a new guided walk from the user's saved preferences, or switch back to wandering. Call this to create the first route and again when they ask for a new route, different places, or a different number of stops. The default tour has 8 stops. Do not call this when they accept the current tour and want to start walking. Say a short preamble before calling.",
     parameters: {
       type: "object",
       properties: {
@@ -177,7 +177,7 @@ export const BOSON_SESSION_TOOLS = [
         },
         max_stops: {
           type: "number",
-          description: "Number of stops for a guided tour (2 to 5).",
+          description: "How many stops, from 2 to 12. Omit it for the default of 8. Set it when they ask for a shorter or longer tour during the review.",
         },
       },
       required: ["mode"],
@@ -300,7 +300,7 @@ async function handleSaveCalibration(
   }
 
   const routeResult = await handlePlanOrUpdateRoute(
-    { mode: "guided_tour", max_stops: 4 },
+    { mode: "guided_tour", max_stops: 8 },
     ctx,
     updated
   );
@@ -414,22 +414,20 @@ async function handleGetSpatialBriefing(
   const shown = enriched.slice(0, 3);
   const more = Math.max(0, enriched.length - shown.length);
 
-  shown.forEach((item, index) => {
-    ctx.onMapHighlight(
-      {
-        targetType: "building",
-        osmId: item.story.osmId,
-        label: item.story.name,
-        subtitle: item.story.sensoryHook,
-        lat: item.story.lat,
-        lon: item.story.lon,
-        geometry: item.story.geometry,
-        category: item.story.categories[0],
-        timestamp: Date.now(),
-      },
-      index === 0
-    );
-  });
+  const spotlight = shown[0];
+  if (spotlight) {
+    ctx.onMapHighlight({
+      targetType: "building",
+      osmId: spotlight.story.osmId,
+      label: spotlight.story.name,
+      subtitle: spotlight.story.sensoryHook,
+      lat: spotlight.story.lat,
+      lon: spotlight.story.lon,
+      geometry: spotlight.story.geometry,
+      category: spotlight.story.categories[0],
+      timestamp: Date.now(),
+    });
+  }
 
   const headingCardinal = cardinalFromHeading(loc.headingDeg);
   const inFront =
@@ -682,13 +680,10 @@ function handleHighlightOnMap(
     timestamp: Date.now(),
   };
 
-  const clearOthers = args.clear_others === true;
-  ctx.onMapHighlight(action, clearOthers);
+  ctx.onMapHighlight(action, true);
 
   return {
-    summary: `Highlighted ${action.label} (${action.targetType}) on the user's map${
-      clearOthers ? ", clearing the other highlights" : " alongside any places already lit"
-    }.`,
+    summary: `Highlighted ${action.label} (${action.targetType}) on the user's map. Any earlier highlight is gone.`,
     detail: action,
   };
 }
@@ -700,7 +695,7 @@ async function handlePlanOrUpdateRoute(
 ): Promise<ToolResult> {
   const mode: TourMode =
     args.mode === "guided_tour" ? "guided_tour" : "wandering";
-  const maxStops = Math.min(5, Math.max(2, Number(args.max_stops || 4)));
+  const maxStops = Math.min(12, Math.max(2, Number(args.max_stops || 8)));
   const current = savedProfile ?? ctx.getProfile();
 
   if (mode === "guided_tour" && !current.calibrated) {
@@ -774,7 +769,7 @@ async function handlePlanOrUpdateRoute(
     .join(", ");
 
   return {
-    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops: ${stopNames}. Review that once, in this turn only, and ask if it sounds good. If they already said yes or let's go, skip the question and guide them to stop 1. Do not call this tool again just to begin walking.`,
+    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops: ${stopNames}. Review that once and ask if it sounds good. They can ask for fewer or more stops before they agree; then call this again with max_stops. If they already agreed, guide them to stop 1 and do not replan.`,
     detail: route,
   };
 }

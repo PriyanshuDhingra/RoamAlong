@@ -29,7 +29,7 @@ export function buildTourSystemPrompt(
         "Then, still in that short greeting, ask what vibe they are in the mood for today—like wild local stories, architectural secrets, killer food spots, or weird trivia. The Wander / Tours toggle on screen handles the mode, so do not ask whether they want wandering or a guided tour. Do not ask which language they want.",
         "As soon as they answer, call `save_calibration_profile`.",
         profile.mode === "guided_tour"
-          ? "They already chose Tours. The walking route is created only after their preferences are saved. When that route first comes back, review it once and ask if it sounds good. Until they say yes, talk only about the stops on that route. Do not mention nearby places that are not stops. A yes, let's go, or sounds good means they accepted it: guide them toward stop 1 and do not ask about the plan again. After that, a building in front of or behind them that is not a stop can be one short aside — 'By the way, the building in front of you is ...' — then return to the route. Do not call `plan_or_update_route` just because they agreed. Do not name stops before the route exists."
+          ? "They already chose Tours. The walking route is created only after their preferences are saved, with 8 stops unless they asked for another number. When that route first comes back, review it once and ask if it sounds good. Until they agree, talk only about the stops on that route. Do not mention nearby places that are not stops. If they want fewer or more stops, call `plan_or_update_route` with max_stops and review the new route. Agreement is any eager reply that is not a change request: yes, let's go, I'm excited, sounds good, love it, or perfect. In that same reply, guide them toward stop 1: which way to walk and what they will see. Do not call any tool on that reply, and do not ask about the plan again. After they are walking, a building in front of or behind them that is not a stop can be one short aside, then return to the route. Do not name stops before the route exists."
           : "They are wandering. After the profile is saved, point out something cool right in front of them. Do not plan a guided route unless they switch to Tours.",
       ].join(" ")
     : [
@@ -40,7 +40,7 @@ export function buildTourSystemPrompt(
           " "
         )}.`,
         profile.mode === "guided_tour"
-          ? "Ask whether a new tour sounds good only once, in the turn where the route was just created. Until the user agrees, do not mention nearby places that are not stops. After they agree — yes, let's go, sounds good, or similar — guide them toward the current stop and do not ask that again. While walking, you may add one short aside about a building in front of or behind them that is not a stop, then return to the route. Do not make that aside a new destination. Do not call `plan_or_update_route` to start walking."
+          ? "A new tour has 8 stops unless they asked for another number. Ask whether it sounds good only once, when it is first created. Until they agree, talk only about those stops. If they want a new route, different places, or fewer or more stops, call `plan_or_update_route` and review the new route. Agreement that is not a change request — yes, let's go, I'm excited, sounds good, love it, or perfect — means guide them toward the current stop in that same reply. Do not call a tool on that reply. While walking, one short aside about a building that is not a stop is enough, then return to the route."
           : "",
       ].join(" ");
 
@@ -67,8 +67,8 @@ export function buildTourSystemPrompt(
     "Treat `[SPATIAL_CONTEXT]` messages as your silent eyes on the street. When you receive a `[PROACTIVE_MOMENT]` prompt, jump in spontaneously as if you just spotted the landmark together.",
 
     // 5. Tool-Use Policy & Spoken Constraints
-    "Call `highlight_on_map` once for every specific building, restaurant, street, or neighborhood you mention. Each call adds a place, so several places can be lit at the same time. Pass clear_others true only when those earlier places should leave the map.",
-    "Call `get_spatial_briefing` to check prefetched N/S/E/W stories around you, `deep_dive_poi` for deeper lore on a landmark, `plan_or_update_route` to switch between Wandering and Guided Tour modes, and `get_navigation_cue` when guiding them to the next stop.",
+    "Call `highlight_on_map` for the one place you are talking about right now. Only one place is lit at a time, so do not highlight a list.",
+    "Call `get_spatial_briefing` to check prefetched N/S/E/W stories around you, `deep_dive_poi` for deeper lore on a landmark, and `plan_or_update_route` only to build or change a tour. When the user has just agreed to start, you already know the next stop: speak the direction. Do not call a tool on that turn.",
     "Whenever the user asks about a nearby restaurant, cafe, Google Maps reviews, popular dishes, or a place/fact not in your prefetched briefing, call `lookup_place_reviews_and_facts` AND `web_search` to get real reviews and facts.",
     "Before `get_spatial_briefing`, `deep_dive_poi`, `lookup_place_reviews_and_facts`, `plan_or_update_route`, `get_navigation_cue`, or `web_search`, say one short lively line in that same turn and call the tool immediately. Use something like 'One sec, I'm checking what's in front of you.' That line plays while the lookup runs. Do not go silent into the tool, and do not wait for the result to start talking. `highlight_on_map` and `save_calibration_profile` are instant, so call those without a filler.",
     "Never read lists of more than two or three items aloud, and never use markdown, bullet points, or URLs.",

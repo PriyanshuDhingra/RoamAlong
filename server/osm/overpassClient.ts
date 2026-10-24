@@ -182,7 +182,8 @@ function inferCategoryFromTags(tags: Record<string, string>): TourTopic {
  */
 export async function fetchOverpassPoisBatch(
   origin: GeoPoint,
-  radiusMeters = 320
+  radiusMeters = 320,
+  options?: { skipFullMap?: boolean; timeoutMs?: number }
 ): Promise<RawOsmPoi[]> {
   const lat = Number(origin.lat.toFixed(6));
   const lon = Number(origin.lon.toFixed(6));
@@ -192,13 +193,17 @@ export async function fetchOverpassPoisBatch(
   );
 
   const errors: string[] = [];
+  const endpoints = OVERPASS_ENDPOINTS;
+  const overpassTimeoutMs = options?.timeoutMs ?? 14000;
 
   // 1. Primary: Official OpenStreetMap API v0.6 bbox JSON (<900ms, never rate-limited like Overpass QL)
+  // A tour plan skips this. A downtown bbox is a huge download and the guide sits silent until it finishes.
   const osmBbox = `${(lon - dLon).toFixed(5)},${(lat - dLat).toFixed(5)},${(
     lon + dLon
   ).toFixed(5)},${(lat + dLat).toFixed(5)}`;
   const osmApiUrl = `https://api.openstreetmap.org/api/0.6/map.json?bbox=${osmBbox}`;
 
+  if (!options?.skipFullMap) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
@@ -228,6 +233,7 @@ export async function fetchOverpassPoisBatch(
       }`
     );
   }
+  }
 
   // 2. Secondary: Indexed BBox Overpass QL across mirrors
   const overpassBbox = `${(lat - dLat).toFixed(5)},${(lon - dLon).toFixed(
@@ -249,12 +255,12 @@ export async function fetchOverpassPoisBatch(
   node["leisure"="park"];
   way["leisure"="park"];
 );
-out center tags 60;
+out center tags 120;
 `.trim();
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
+  for (const endpoint of endpoints) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 14000);
+    const timer = setTimeout(() => controller.abort(), overpassTimeoutMs);
     try {
       const res = await fetch(endpoint, {
         method: "POST",

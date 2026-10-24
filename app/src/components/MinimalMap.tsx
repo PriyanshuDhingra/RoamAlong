@@ -23,7 +23,6 @@ export interface MinimalMapProps {
   activeRoute: TourRoute | null;
   walkPath: GeoPoint[] | null;
   showQuadrantOverlay: boolean;
-  recenterToken: number;
   onMapClickTeleport: (lat: number, lon: number) => void;
   onSelectStory: (story: StoryCard) => void;
 }
@@ -122,7 +121,6 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
   activeRoute,
   walkPath,
   showQuadrantOverlay,
-  recenterToken,
   onMapClickTeleport,
   onSelectStory,
 }) => {
@@ -446,23 +444,6 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
       });
     }
   }, [highlights, activeRoute, walkPath, heartbeat, showQuadrantOverlay]);
-
-  useEffect(() => {
-    if (recenterToken === 0) return;
-    const map = mapRef.current;
-    if (!map || !styleLoadedRef.current) return;
-    followPausedUntilRef.current = 0;
-    const here = liveLocationRef.current;
-    map.stop();
-    map.easeTo({
-      center: [here.lon, here.lat],
-      zoom: 16.6,
-      pitch: 45,
-      bearing: 0,
-      padding: { top: 80, bottom: 280, left: 24, right: 24 },
-      duration: 400,
-    });
-  }, [recenterToken]);
 
   return (
     <div

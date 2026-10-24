@@ -69,7 +69,6 @@ export const App: React.FC = () => {
   const [debugOpen, setDebugOpen] = useState(false);
   const [protocolDrawerOpen, setProtocolDrawerOpen] = useState(false);
   const [showQuadrantOverlay, setShowQuadrantOverlay] = useState(false);
-  const [recenterToken, setRecenterToken] = useState(0);
   const [pacerStatus, setPacerStatus] = useState<string>(
     "Ready to read the room"
   );
@@ -114,16 +113,8 @@ export const App: React.FC = () => {
           setLatestHeartbeat: (hb) => setHeartbeat(hb),
           getActiveRoute: () => activeRouteRef.current,
           setActiveRoute: (r) => publishRoute(r),
-          onMapHighlight: (action, clearOthers = false) => {
-            setHighlights((prev) => {
-              const kept = clearOthers
-                ? []
-                : prev.filter(
-                    (item) =>
-                      (item.osmId || item.label) !== (action.osmId || action.label)
-                  );
-              return [...kept, action].slice(-6);
-            });
+          onMapHighlight: (action) => {
+            setHighlights([action]);
           },
         },
         {
@@ -144,14 +135,24 @@ export const App: React.FC = () => {
       .find((item) => item.role === "user");
     if (!lastUser || lastUser.timestamp <= routeProposedAtRef.current) return;
     if (
-      !/\b(yes|yeah|yep|yup|sure|okay|ok|let's go|lets go|let us go|sounds good|sounds great|let's do it|lets do it|go for it)\b/i.test(
+      /\b(\d+\s*stops?|fewer stops|more stops|shorter|longer|add stops|drop a stop)\b/i.test(
+        lastUser.text
+      )
+    ) {
+      return;
+    }
+    if (
+      !/\b(yes|yeah|yep|yup|sure|okay|ok|let's go|lets go|let us go|i'm excited|im excited|i am excited|sounds good|sounds great|love it|perfect|let's do it|lets do it|go for it|can't wait|cant wait|lead the way)\b/i.test(
         lastUser.text
       )
     ) {
       return;
     }
     tourAcceptedRef.current = true;
-  }, [transcript, activeRoute]);
+    const stopName =
+      activeRoute.stops[activeRoute.currentStopIndex]?.poi.name ?? "the first stop";
+    rtClient.cueAcceptedTour(stopName);
+  }, [transcript, activeRoute, rtClient]);
 
   // Live fixes stay in LocationManager. React hears about them after a real move,
   // a real turn, a GPS/sim switch, or a short pause while debug mode is open.
@@ -243,8 +244,8 @@ export const App: React.FC = () => {
           } else if (decision.type === "proactive_spoken_moment") {
             if (decision.poi) {
               const poi = decision.poi;
-              setHighlights((prev) => {
-                const action: MapHighlightAction = {
+              setHighlights([
+                {
                   targetType: "building",
                   osmId: poi.osmId,
                   label: poi.name,
@@ -254,12 +255,8 @@ export const App: React.FC = () => {
                   geometry: poi.geometry,
                   category: poi.categories[0],
                   timestamp: Date.now(),
-                };
-                const kept = prev.filter(
-                  (item) => (item.osmId || item.label) !== (action.osmId || action.label)
-                );
-                return [...kept, action].slice(-6);
-              });
+                },
+              ]);
             }
             rtClient.triggerProactiveMoment(decision.promptText);
           }
@@ -401,12 +398,7 @@ export const App: React.FC = () => {
       category: story.categories[0],
       timestamp: Date.now(),
     };
-    setHighlights((prev) => {
-      const kept = prev.filter(
-        (item) => (item.osmId || item.label) !== (action.osmId || action.label)
-      );
-      return [...kept, action].slice(-6);
-    });
+    setHighlights([action]);
     pacer.markNarrated(story.osmId);
 
     if (rtClient.state === "open") {
@@ -452,7 +444,7 @@ export const App: React.FC = () => {
         lon: location.lon,
         headingDeg: location.headingDeg,
         profile: nextProfile,
-        maxStops: 4,
+        maxStops: 8,
       }),
     });
     if (res.ok) {
@@ -462,7 +454,7 @@ export const App: React.FC = () => {
         rtClient.sendSessionUpdate();
         const stopList = route.stops.map((stop) => stop.poi.name).join(", ");
         rtClient.sendUserText(
-          `I switched to Tours. The route "${route.title}" is ready: ${stopList}. About ${route.estimatedDurationMinutes} minutes. Review that tour once and ask if it sounds good. After I agree, guide me to the first stop and do not ask again.`,
+          `I switched to Tours. The route "${route.title}" is ready: ${stopList}. About ${route.estimatedDurationMinutes} minutes. Review that tour once and ask if it sounds good. If I want fewer or more stops, replan. After I agree without asking for a change, guide me to the first stop.`,
           false,
           true
         );
@@ -573,7 +565,6 @@ export const App: React.FC = () => {
         activeRoute={activeRoute}
         walkPath={walkPath}
         showQuadrantOverlay={showQuadrantOverlay}
-        recenterToken={recenterToken}
         onMapClickTeleport={(lat, lon) => {
           if (debugMode) locationManager.teleport(lat, lon);
         }}
@@ -605,7 +596,6 @@ export const App: React.FC = () => {
         onStartTour={() => void handleStartTour()}
         onEndTour={() => void handleToggleConnect()}
         onToggleMic={() => void handleToggleMic()}
-        onRecenter={() => setRecenterToken((token) => token + 1)}
         onSetMode={(mode) => void handleSwitchMode(mode)}
         onSetVoice={(voice) => {
           const next = { ...profileRef.current, voice, updatedAt: Date.now() };

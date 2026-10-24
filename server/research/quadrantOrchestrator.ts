@@ -398,9 +398,27 @@ function storyForPoi(poi: RawOsmPoi, known?: StoryCard): StoryCard {
   };
 }
 
+async function loadFreshTourPois(origin: GeoPoint): Promise<RawOsmPoi[]> {
+  try {
+    const indexed = await fetchOverpassPoisBatch(origin, 700, {
+      skipFullMap: true,
+      timeoutMs: 8000,
+    });
+    if (indexed.length >= 8) return indexed;
+  } catch {
+    // The indexed lookup can time out. The map download below is the backup.
+  }
+  try {
+    return await fetchOverpassPoisBatch(origin, 450, { timeoutMs: 8000 });
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Picks stops whose category matches the user's topics, one topic at a time,
- * so a food walk and an architecture walk are not the same four landmarks.
+ * Fetches a fresh set of stops for this tour. Saved stories are only used
+ * when one of those places already has a writeup. The old four-place cache
+ * is not the stop list.
  */
 async function selectStopsForTopics(
   origin: GeoPoint,
@@ -410,56 +428,54 @@ async function selectStopsForTopics(
 ): Promise<StoryCard[]> {
   const wanted = new Set(topics);
   const knownById = new Map(knownStories.map((story) => [story.osmId, story]));
-  const fallback = [...knownStories]
-    .sort((a, b) => {
-      const aMatch = a.categories.some((topic) => wanted.has(topic)) ? 100 : 0;
-      const bMatch = b.categories.some((topic) => wanted.has(topic)) ? 100 : 0;
-      return bMatch + b.score - (aMatch + a.score);
+  const pois = await loadFreshTourPois(origin);
+  if (pois.length === 0) {
+    return knownStories.slice(0, maxStops);
+  }
+
+  const pool = pois
+    .filter((poi) => {
+      const nameKey = poi.name.trim().toLowerCase();
+      if (!nameKey) return false;
+      const dist = haversineMeters(origin, poi);
+      return dist >= 30 && dist <= 900;
     })
-    .slice(0, maxStops);
+    .sort((a, b) => {
+      const aMatch = wanted.has(a.category) ? 0 : 1;
+      const bMatch = wanted.has(b.category) ? 0 : 1;
+      if (aMatch !== bMatch) return aMatch - bMatch;
+      return haversineMeters(origin, a) - haversineMeters(origin, b);
+    });
 
-  let pois: RawOsmPoi[] = [];
-  try {
-    pois = await fetchOverpassPoisBatch(origin, 450);
-  } catch {
-    return fallback;
-  }
-
-  const buckets = new Map<TourTopic, RawOsmPoi[]>();
-  const seenNames = new Set<string>();
-  for (const poi of pois) {
-    if (!wanted.has(poi.category)) continue;
-    const nameKey = poi.name.trim().toLowerCase();
-    if (!nameKey || seenNames.has(nameKey)) continue;
-    const dist = haversineMeters(origin, poi);
-    if (dist < 30 || dist > 650) continue;
-    seenNames.add(nameKey);
-    const list = buckets.get(poi.category) ?? [];
-    list.push(poi);
-    buckets.set(poi.category, list);
-  }
-  for (const list of buckets.values()) {
-    list.sort((a, b) => haversineMeters(origin, a) - haversineMeters(origin, b));
-  }
-
-  const topicOrder = topics.filter((topic) => (buckets.get(topic)?.length ?? 0) > 0);
-  const picked: RawOsmPoi[] = [];
-  while (picked.length < maxStops) {
-    let added = false;
-    for (const topic of topicOrder) {
+  const picked: StoryCard[] = [];
+  for (const gap of [80, 40, 0]) {
+    for (const poi of pool) {
       if (picked.length >= maxStops) break;
-      const list = buckets.get(topic);
-      const next = list?.shift();
-      if (!next) continue;
-      if (picked.some((poi) => haversineMeters(poi, next) < 45)) continue;
-      picked.push(next);
-      added = true;
+      const nameKey = poi.name.trim().toLowerCase();
+      if (
+        picked.some(
+          (story) =>
+            story.osmId === poi.osmId ||
+            story.name.trim().toLowerCase() === nameKey
+        )
+      ) {
+        continue;
+      }
+      if (gap > 0 && picked.some((story) => haversineMeters(story, poi) < gap)) {
+        continue;
+      }
+      if (gap > 0 && !wanted.has(poi.category) && picked.length < maxStops) {
+        const topicLeft = pool.some(
+          (other) =>
+            wanted.has(other.category) &&
+            !picked.some((story) => story.osmId === other.osmId)
+        );
+        if (topicLeft) continue;
+      }
+      picked.push(storyForPoi(poi, knownById.get(poi.osmId)));
     }
-    if (!added) break;
   }
-
-  if (picked.length < 2) return fallback;
-  return picked.map((poi) => storyForPoi(poi, knownById.get(poi.osmId)));
+  return picked.slice(0, maxStops);
 }
 
 /**
@@ -470,7 +486,7 @@ export async function generateGuidedTourRoute(
   origin: GeoPoint,
   headingDeg: number,
   profile: SpatialHeartbeatRequest["profile"],
-  maxStops = 4
+  maxStops = 8
 ): Promise<TourRoute> {
   const heartbeat = await processSpatialHeartbeat({
     lat: origin.lat,
@@ -509,9 +525,13 @@ export async function generateGuidedTourRoute(
     cursor = next;
   }
 
-  // Prefetch Wikipedia & spatial tiles for every stop along the Guided Tour route upfront
+  if (orderedStops.length < 2) {
+    throw new Error("Not enough places nearby to build a tour yet.");
+  }
+
+  // Wikipedia can fill in later. The route has to reach the map before that lookup finishes.
   const profileKey = makeProfileKey(profile);
-  await Promise.all(
+  void Promise.all(
     orderedStops.map(async (stop) => {
       const wiki = await fetchWikipediaSummaryByTag(`en:${stop.name}`);
       if (wiki?.extract && wiki.extract.length > stop.narrativeSummary.length) {
@@ -520,7 +540,7 @@ export async function generateGuidedTourRoute(
       }
       savePersistedPoiStory(`${stop.osmId}:${profileKey}`, stop);
     })
-  );
+  ).catch(() => undefined);
 
   const waypoints: GeoPoint[] = [
     origin,

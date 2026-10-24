@@ -95,6 +95,7 @@ export class BosonRealtimeClient {
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private fillerActive = false;
   private answerHold: string[] | null = null;
+  private queuedTurn: string | null = null;
 
   constructor(
     toolCtx: ToolExecutionContext,
@@ -264,12 +265,13 @@ export class BosonRealtimeClient {
           input: {
             format: { type: "audio/pcm", rate: BOSON_AUDIO_RATE },
             transcription: { model: "higgs-stt-3.1" },
+            noise_reduction: { type: "near_field" },
             turn_detection: {
               type: "semantic_vad",
-              threshold: 0.55,
+              threshold: 0.82,
               prefix_padding_ms: 300,
-              silence_duration_ms: 420,
-              min_speech_duration: 0.125,
+              silence_duration_ms: 650,
+              min_speech_duration: 0.4,
             },
           },
           output: {
@@ -308,14 +310,33 @@ export class BosonRealtimeClient {
     this.audio.stopMicrophone();
   }
 
+  cueAcceptedTour(stopName: string): void {
+    const text = `[TOUR_ACCEPTED] I accept the tour. Guide me toward ${stopName} right now. Tell me which way to walk and what I will see. Do not call any tools. Do not ask if the tour sounds good.`;
+    if (this.state !== "open") return;
+    if (this.responseInFlight || this.toolBatchInFlight) {
+      this.queuedTurn = text;
+      return;
+    }
+    this.sendUserText(text, true, true);
+  }
+
+  private flushQueuedTurn(): void {
+    if (!this.queuedTurn || this.state !== "open") return;
+    if (this.responseInFlight || this.toolBatchInFlight) return;
+    const text = this.queuedTurn;
+    this.queuedTurn = null;
+    this.sendUserText(text, true, true);
+  }
+
   /**
    * Sends a user text turn.
-   * When `silent` is true, appends `[SPATIAL_CONTEXT]` to the conversation memory WITHOUT
-   * calling `response.create`, allowing zero-latency passive location awareness.
+   * When `silent` is true, appends the text without showing it as a user caption.
+   * A spoken turn waits if the guide is already responding, then plays when that turn ends.
    */
   sendUserText(text: string, silent = false, triggerResponse = true): void {
     if (this.state !== "open") return;
     if (triggerResponse && (this.responseInFlight || this.toolBatchInFlight)) {
+      this.queuedTurn = text;
       return;
     }
     if (!silent) {
@@ -486,6 +507,11 @@ export class BosonRealtimeClient {
           await this.handleClientToolBatch(clientCalls);
         } else {
           this.turnAudioDone = true;
+          if (!this.responseSpoke) {
+            this.responseInFlight = false;
+            this.setActivity("listening");
+            this.flushQueuedTurn();
+          }
         }
         break;
       }
@@ -748,6 +774,7 @@ export class BosonRealtimeClient {
       this.turnAudioDone = false;
       this.responseInFlight = false;
       this.setActivity("listening");
+      this.flushQueuedTurn();
     }
   }
 

@@ -201,7 +201,7 @@ async function callAzureOpenAiSectorAgent(
   azure: ReturnType<typeof getAzureConfig>,
   input: SectorSynthesisInput
 ): Promise<StoryCard[]> {
-  const topPois = input.pois.slice(0, 4).map((p) => ({
+  const topPois = input.pois.slice(0, 8).map((p) => ({
     osmId: p.osmId,
     name: p.name,
     lat: p.lat,

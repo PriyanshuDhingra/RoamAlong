@@ -2,14 +2,12 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   AudioLines,
   Building2,
-  Locate,
   Map,
   Mic,
   MicOff,
   PersonStanding,
   Play,
   SlidersHorizontal,
-  Volume2,
   X,
 } from "lucide-react";
 import type { ServerEvent, TranscriptItem } from "../realtime/RealtimeClient.js";
@@ -74,7 +72,6 @@ export interface VoiceChromeProps {
   onStartTour: () => void;
   onEndTour: () => void;
   onToggleMic: () => void;
-  onRecenter: () => void;
   onSetMode: (mode: TourMode) => void;
   onSetVoice: (voice: UserCalibrationProfile["voice"]) => void;
   onToggleTopic: (topic: TourTopic) => void;
@@ -313,12 +310,6 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
         )}
 
         <div className="wg-controls">
-          <button type="button" className="wg-side" disabled={!live} aria-label="Guide on">
-            <span className="wg-side-circle">
-              <Volume2 size={18} strokeWidth={2.2} />
-            </span>
-            <span className="wg-side-label">Guide on</span>
-          </button>
           <TalkButton
             live={live}
             connecting={connecting}
@@ -326,12 +317,6 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
             speaking={speaking}
             onPress={() => (live ? props.onToggleMic() : props.onStartTour())}
           />
-          <button type="button" className="wg-side" aria-label="Me" onClick={props.onRecenter}>
-            <span className="wg-side-circle">
-              <Locate size={18} strokeWidth={2.2} />
-            </span>
-            <span className="wg-side-label">Me</span>
-          </button>
         </div>
           </div>
         </div>

@@ -82,7 +82,7 @@ export function createApp() {
   // 3. Generate or Update a Guided Tour Route via OSRM + Prefetched POIs
   app.post("/api/tour/generate", async (req, res) => {
     try {
-      const { lat = 43.6595, lon = -79.3912, headingDeg = 0, profile, maxStops = 4 } =
+      const { lat = 43.6595, lon = -79.3912, headingDeg = 0, profile, maxStops = 8 } =
         req.body ?? {};
       const route = await generateGuidedTourRoute(
         { lat: Number(lat), lon: Number(lon) },

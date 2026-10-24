@@ -273,8 +273,8 @@ export class AudioSession {
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: true,
+        noiseSuppression: true,
+        autoGainControl: false,
         channelCount: 1,
       },
     });
@@ -286,6 +286,8 @@ export class AudioSession {
     const resampler = createResampler(ctx.sampleRate, BOSON_AUDIO_RATE);
     this.sourceNode = ctx.createMediaStreamSource(this.mediaStream);
     this.captureNode = new AudioWorkletNode(ctx, "boson-capture-processor");
+    let speechOpenUntil = 0;
+    let quietFrame: Float32Array | null = null;
 
     this.captureNode.port.onmessage = (e) => {
       if (e.data?.type !== "frame") return;
@@ -294,9 +296,18 @@ export class AudioSession {
       for (let i = 0; i < rawFrame.length; i++) {
         sum += rawFrame[i] * rawFrame[i];
       }
-      onMicLevel?.(Math.min(1, Math.sqrt(sum / rawFrame.length) * 4));
+      const rms = Math.sqrt(sum / rawFrame.length);
+      onMicLevel?.(Math.min(1, rms * 4));
+      const now = performance.now();
+      if (rms >= 0.03) speechOpenUntil = now + 450;
+      const speaking = now < speechOpenUntil;
+      const frame = speaking
+        ? rawFrame
+        : (quietFrame?.length === rawFrame.length
+            ? quietFrame
+            : (quietFrame = new Float32Array(rawFrame.length)));
 
-      const pcm16 = floatTo16BitPCM(resampler(rawFrame));
+      const pcm16 = floatTo16BitPCM(resampler(frame));
       onBase64Frame(int16ToBase64(pcm16));
     };
 
