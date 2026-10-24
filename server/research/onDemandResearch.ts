@@ -183,7 +183,7 @@ async function searchTargetedOverpass(
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
         Accept: "application/json",
       },
       signal: controller.signal,

@@ -150,7 +150,7 @@ export default function App() {
       <SafeAreaView style={styles.loadingContainer}>
         <StatusBar barStyle="dark-content" />
         <ActivityIndicator size="large" color="#1a73e8" />
-        <Text style={styles.loadingText}>Starting Handheld Audio Tour…</Text>
+        <Text style={styles.loadingText}>Starting RoamAlong…</Text>
       </SafeAreaView>
     );
   }

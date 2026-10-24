@@ -211,7 +211,7 @@ export async function fetchOverpassPoisBatch(
     const res = await fetch(osmApiUrl, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+        "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
       },
       signal: controller.signal,
     });
@@ -267,7 +267,7 @@ out center tags 120;
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "HandheldBosonTour/1.0 (Hackathon Audio Guide)",
+          "User-Agent": "RoamAlong/1.0 (Hackathon Audio Guide)",
         },
         body: new URLSearchParams({ data: query }),
         signal: controller.signal,
