@@ -48,7 +48,7 @@ export const DEFAULT_CALIBRATION_PROFILE: UserCalibrationProfile = {
   proactivity: "balanced",
   languages: ["English"],
   mode: "wandering",
-  voice: "mia",
+  voice: "oliver",
   updatedAt: Date.now(),
 };
 

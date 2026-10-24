@@ -113,7 +113,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "lookup_place_reviews_and_facts",
     description:
-      "Call this whenever the user asks about a restaurant, cafe, shop, building, or local fact that is NOT yet covered in the prefetched N/S/E/W context, OR when they ask for reviews, ratings, popular dishes, or opening hours for a nearby place. Pair this with `web_search` if live Google Maps / Yelp reviews or current web facts are needed.",
+      "Call this whenever the user asks about a specific named place (building, statue, monument, artwork, restaurant, cafe, shop) or a local fact that is NOT word-for-word covered in your briefing or an earlier tool result, even if you think you know it, and even before they agree to a tour. Never answer such a question from memory; OR when they ask for reviews, ratings, popular dishes, or opening hours for a nearby place. Pair this with `web_search` if live Google Maps / Yelp reviews or current web facts are needed.",
     parameters: {
       type: "object",
       properties: {
@@ -282,7 +282,7 @@ async function handleSaveCalibration(
     proactivity,
     languages,
     mode,
-    voice: current.voice || "mia",
+    voice: current.voice || "oliver",
     updatedAt: Date.now(),
   };
   ctx.setProfile(updated);
@@ -769,7 +769,7 @@ async function handlePlanOrUpdateRoute(
     .join(", ");
 
   return {
-    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops: ${stopNames}. Review that once and ask if it sounds good. They can ask for fewer or more stops before they agree; then call this again with max_stops. If they already agreed, guide them to stop 1 and do not replan.`,
+    summary: `Guided tour "${route.title}" is ready: ${route.stops.length} stops, about ${route.estimatedDurationMinutes} minutes, ${Math.round(route.totalDistanceMeters)} meters. Stops (for your reference, do not read them all out): ${stopNames}. Review it once in two short sentences: stop count, time, and the first two stops only, then ask if it sounds good. They can ask for fewer or more stops before they agree; then call this again with max_stops. If they already agreed, guide them to stop 1 and do not replan.`,
     detail: route,
   };
 }

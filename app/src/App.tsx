@@ -120,7 +120,7 @@ export const App: React.FC = () => {
         {
           onStateChange: () => forceRender((n) => n + 1),
           onEventLog: (ev) =>
-            setEventLogs((prev) => [ev, ...prev.slice(0, 59)]),
+            setEventLogs((prev) => [ev, ...prev.slice(0, 199)]),
           onTranscriptUpdate: (items) => setTranscript(items),
           onMicLevel: (rms) => setMicLevel(rms),
         }
@@ -452,9 +452,9 @@ export const App: React.FC = () => {
       publishRoute(route);
       if (rtClient.state === "open") {
         rtClient.sendSessionUpdate();
-        const stopList = route.stops.map((stop) => stop.poi.name).join(", ");
+        const firstStops = route.stops.slice(0, 2).map((stop) => stop.poi.name).join(" and ");
         rtClient.sendUserText(
-          `I switched to Tours. The route "${route.title}" is ready: ${stopList}. About ${route.estimatedDurationMinutes} minutes. Review that tour once and ask if it sounds good. If I want fewer or more stops, replan. After I agree without asking for a change, guide me to the first stop.`,
+          `I switched to Tours. The route "${route.title}" is ready: ${route.stops.length} stops, starting with ${firstStops}. About ${route.estimatedDurationMinutes} minutes. Review it in two short sentences (stop count, time, first two stops; do not list the rest) and ask if it sounds good. If I want fewer or more stops, replan. After I agree without asking for a change, guide me to the first stop.`,
           false,
           true
         );

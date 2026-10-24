@@ -3,7 +3,7 @@ import {
   type UserCalibrationProfile,
 } from "../../../shared/types.js";
 
-const STORAGE_KEY = "handheld_boson_calibration_v3";
+const STORAGE_KEY = "handheld_boson_calibration_v4";
 
 export function loadSavedCalibrationProfile(): UserCalibrationProfile {
   try {

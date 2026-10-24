@@ -344,7 +344,7 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
                 <button
                   key={voice.id}
                   type="button"
-                  className={`wg-chip${(props.profile.voice || "mia") === voice.id ? " on" : ""}`}
+                  className={`wg-chip${(props.profile.voice || "oliver") === voice.id ? " on" : ""}`}
                   onClick={() => props.onSetVoice(voice.id)}
                 >
                   {voice.label}
@@ -452,7 +452,7 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
         <div className="wg-log" role="log" aria-label="Realtime events">
           {props.events.length === 0
             ? "No events yet."
-            : props.events.slice(0, 40).map((event, index) => (
+            : props.events.slice(0, 200).map((event, index) => (
                 <div key={`${event.type}-${index}`}>{event.type}</div>
               ))}
         </div>
