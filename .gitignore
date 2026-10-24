@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.expo/
+.env
+.env.local
+.env.example
+.cache/
+*.log
+.DS_Store
+captures/
+ext/
+.cursor/
