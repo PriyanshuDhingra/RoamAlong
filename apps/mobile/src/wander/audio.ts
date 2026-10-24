@@ -89,7 +89,8 @@ export class AudioEngine {
       }
       if (e.isLastBufferInQueue && q === this.queue) this.playing = false;
     };
-    q.start(ctx.currentTime);
+    // Pass offset explicitly: start()'s default offset (-1) fails the library's own non-negative check (0.13.6).
+    q.start(ctx.currentTime, 0);
     this.queue = q;
     this.playing = true;
   }

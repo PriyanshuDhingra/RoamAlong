@@ -13,9 +13,13 @@
       "supportsTablet": false,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Wander uses your location to tell you about the places you are walking past.",
-        "UIBackgroundModes": ["audio", "location"],
+        "UIBackgroundModes": [
+          "audio",
+          "location"
+        ],
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "appleTeamId": "UJ4MDY77WF"
     },
     "android": {
       "package": "com.rayanelghazzi.wander",

@@ -1,56 +1,33 @@
-# Welcome to your Expo app 👋
+# Wander iOS app (Expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo SDK 58 development build (not Expo Go: the audio and map modules are native). Same protocol as the web debug
+client: [protocol/README.md](../../protocol/README.md).
 
-## Get started
+| Piece | Library | File |
+|---|---|---|
+| Mic (16 kHz PCM16, 20 ms) + playback (24 kHz buffer queue, flush on barge-in) | `react-native-audio-api` | `src/wander/audio.ts` |
+| Gateway session, reconnect, downlink handling | WebSocket | `src/wander/session.ts` |
+| GPS + compass, simulated demo walk, long-press teleport | `expo-location` | `src/wander/location.ts` |
+| Map: hero outlines, 3D focus, route, user puck | `@maplibre/maplibre-react-native` | `src/app/index.tsx` |
 
-1. Install dependencies
+## Run on an iPhone (same Wi-Fi as the Mac)
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+1. Start the gateway on the network: `uv run uvicorn backend.gateway.main:app --host 0.0.0.0 --port 8000` (repo root).
+2. `apps/mobile/.env.local`: `EXPO_PUBLIC_GATEWAY_URL=ws://<mac-ip>:8000`
+3. Plug in the iPhone (Developer Mode on, unlocked), then:
 
 ```bash
-npm run reset-project
+cd apps/mobile
+npx expo run:ios --device
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Signing uses the team in `app.json` (`ios.appleTeamId`). With a free Apple account, trust the developer profile on
+the phone once: Settings → General → VPN & Device Management.
 
-### Other setup steps
+## Run outdoors (no shared Wi-Fi)
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Build a Release configuration so the JavaScript is embedded (`npx expo run:ios --device --configuration Release`),
+expose the gateway through an HTTPS tunnel with `WANDER_ACCESS_TOKEN` set, and paste
+`wss://<tunnel-host>?token=<token>` into the app's settings sheet (tap the status pill).
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Use earbuds: on the phone speaker the guide hears itself.
