@@ -2,6 +2,7 @@
   "expo": {
     "name": "RoamAlong",
     "slug": "handheld-boson-audio-tour",
+    "icon": "./assets/icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",

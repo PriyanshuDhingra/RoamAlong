@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- RoamAlong: a walking path that ends at a place, and a voice telling you about it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="0.55" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E0F2F1"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g transform="translate(-50 20)">
+    <!-- soft glow behind the pin -->
+    <circle cx="560" cy="380" r="290" fill="#FFFFFF" opacity="0.07"/>
+    <!-- winding walking path, ending at the pin's tip -->
+    <path d="M200 860 C 300 800, 230 700, 360 690 S 520 700, 560 670"
+          fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round"
+          stroke-dasharray="2 68" opacity="0.95"/>
+    <circle cx="200" cy="860" r="32" fill="#FDE68A"/>
+    <!-- location pin -->
+    <path d="M560 150 C 445 150, 355 240, 355 355 C 355 490, 560 640, 560 640 C 560 640, 765 490, 765 355 C 765 240, 675 150, 560 150 Z"
+          fill="url(#pin)"/>
+    <circle cx="560" cy="352" r="78" fill="#0F766E"/>
+    <!-- voice waves -->
+    <path d="M808 285 A 140 140 0 0 1 808 425" fill="none" stroke="#FDE68A" stroke-width="34" stroke-linecap="round"/>
+    <path d="M872 225 A 220 220 0 0 1 872 485" fill="none" stroke="#FEF3C7" stroke-width="34" stroke-linecap="round" opacity="0.8"/>
+  </g>
+</svg>
