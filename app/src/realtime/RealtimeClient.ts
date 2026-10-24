@@ -276,7 +276,7 @@ export class BosonRealtimeClient {
             turn_detection: {
               type: "semantic_vad",
               threshold: 0.82,
-              prefix_padding_ms: 300,
+              prefix_padding_ms: 1000,
               silence_duration_ms: 650,
               // 0.4 s made short interjections ("wait—") never register and long ones land late; Boson's
               // default is 0.125 s. 0.2 s still ignores coughs and clicks.
