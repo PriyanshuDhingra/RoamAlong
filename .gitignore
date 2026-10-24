@@ -23,3 +23,6 @@ data/valhalla/
 
 # os
 .DS_Store
+
+# probe logs (raw model output; summaries live in docs/boson-findings.md)
+data/probes/
