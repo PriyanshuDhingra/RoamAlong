@@ -197,6 +197,7 @@ export function createApp() {
 
       res.json(result);
     } catch (err) {
+      console.error("[api] on-demand lookup failed:", err instanceof Error ? err.message : err);
       res.status(500).json({
         error:
           err instanceof Error ? err.message : "On-demand research failed",

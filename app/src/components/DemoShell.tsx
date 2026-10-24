@@ -32,11 +32,11 @@ const STEPS: { title: string; body: string; lines: string[] }[] = [
   },
   {
     title: "Ask about what you see",
-    body: "He looks places up live instead of guessing.",
+    body: "He looks places up live instead of guessing, and answers in whatever language you ask in.",
     lines: [
-      "What's the glass forest monument at Queen's Park?",
+      "What's the Notre Place monument at Queen's Park?",
       "Tell me about the C. David Naylor Building.",
-      "Qui est la statue de Robert Raikes ?",
+      "Parle-moi de la statue de Robert Raikes, s'il te plaît.",
     ],
   },
   {

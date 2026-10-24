@@ -196,7 +196,7 @@ export const App: React.FC = () => {
         case "say":
           if (!msg.text) return;
           if (rtClient.state !== "open") await handleStartTourRef.current();
-          rtClient.sendUserText(msg.text, false, true);
+          rtClient.sendUserUtterance(msg.text);
           break;
         case "autowalk":
           if (locationManager.isAutoWalking()) locationManager.stopAutoWalk();

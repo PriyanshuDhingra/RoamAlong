@@ -632,9 +632,12 @@ async function handleLookupPlaceReviewsAndFacts(
   const cuisineText = data.cuisine ? ` Cuisine: ${data.cuisine}.` : "";
 
   return {
-    summary: `${data.placeName} (${data.distanceMeters}m ${data.relativeDirection} at ${data.clockPosition}${
-      data.address ? `, ${data.address}` : ""
-    }): ${data.answerSummary}${cuisineText}${hoursText} Vibe & reviews: ${
+    // Without an OSM match the server has no real position, so it reports 0 m; don't let the guide say "right here".
+    summary: `${data.placeName} (${
+      data.foundInOsm
+        ? `${data.distanceMeters}m ${data.relativeDirection} at ${data.clockPosition}`
+        : "exact position unknown"
+    }${data.address ? `, ${data.address}` : ""}): ${data.answerSummary}${cuisineText}${hoursText} Vibe & reviews: ${
       data.reviewAndVibeSynthesis
     } (If the user asked for specific Google Maps ratings or live customer quotes, also call web_search with "${
       data.suggestWebSearchQuery

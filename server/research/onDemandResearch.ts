@@ -258,7 +258,7 @@ async function synthesizeOnDemandAnswer(params: {
       "You are an on-demand local research agent for a live walking tour. Use web_search to find real reviews, popular dishes, ratings, and historical facts. Synthesize a concise spoken answer (2-3 sentences), local review/vibe consensus, a visual sensory hook, and a follow-up question. Return ONLY a JSON object with keys: sensoryHook, answerSummary, reviewAndVibeSynthesis, followUpQuestion.",
     userPayload: params,
     useWebSearch: true,
-    timeoutMs: 18000,
+    timeoutMs: 25000,
   });
 
   const parsed = JSON.parse(content) as {

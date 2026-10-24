@@ -23,17 +23,31 @@ const TOPIC_KEYWORDS: Record<string, RegExp> = {
 
 // A question about one specific place ("what's that monument?", "tell me about the Naylor Building").
 const PLACE_QUESTION =
-  /\b(what|what's|whats|who|which|tell me|qu'est|c'est quoi|quel|quelle|qui)\b|\?/i;
+  /\b(what|what's|whats|who|which|tell me|qu'est|c'est quoi|quel|quelle|qui|parle|raconte|dis-moi)\b|\?/i;
 const PLACE_CUE =
   /\b(building|statue|monument|memorial|sculpture|church|tower|hall|college|museum|house|that|this|over there|bâtiment|église)\b|\b[A-Z][a-z]+ [A-Z][a-z]+/;
 const NOT_A_PLACE_QUESTION =
   /\b(next stop|route|tour|how (far|long)|hungry|breakfast|coffee|lunch|dinner|restaurant|cafe|café|eat|detour)\b/i;
 
+function isPlaceQuestion(text: string): boolean {
+  return PLACE_QUESTION.test(text) && PLACE_CUE.test(text) && !NOT_A_PLACE_QUESTION.test(text);
+}
+
+/** Rough language guess for typed lines and lookup answers; Higgs otherwise tends to reply in English. */
+function detectLanguage(text: string): string | null {
+  if (/[\u0600-\u06FF]/.test(text)) return "Arabic";
+  if (/[\u0900-\u097F]/.test(text)) return "Hindi";
+  const french = text
+    .toLowerCase()
+    .match(/\b(le|la|les|de|du|des|est|qui|quoi|quel|quelle|parle|moi|c'est|qu'est|pourquoi|où|s'il|plaît|cette|ce|une|un|et|je|tu|vous)\b/g);
+  return french && french.length >= 3 ? "French" : null;
+}
+
 /** Strips question phrasing so the lookup searches for the place, not the sentence. */
 function placeQuery(question: string): string {
   const cleaned = question
     .replace(
-      /\b(what('s| is| does| was| are)?|who|which|tell me( more)?( about)?|can you|could you|and|the|it|that|this|mean|means|over there|right there|here|about|qu'est-ce que|c'est quoi|quel(le)?|qui|est|ce|cette|statue de|de|la|le)\b/gi,
+      /\b(what('s| is| does| was| are)?|who|which|tell me( more)?( about)?|can you|could you|and|the|it|that|this|mean|means|over there|right there|here|about|qu'est-ce que|c'est quoi|quel(le)?|qui|est|ce|cette|statue de|de|la|le|du|parle-moi|parle|moi|raconte-moi|dis-moi|s'il te plaît|s'il vous plaît|plaît)\b/gi,
       " "
     )
     .replace(/[?.!,]/g, " ")
@@ -503,11 +517,7 @@ export class BosonRealtimeClient {
           if (!this.toolCtx.getProfile().calibrated) {
             this.unsavedCalibrationAnswer = transcript;
             this.calibrationNudged = false;
-          } else if (
-            PLACE_QUESTION.test(transcript) &&
-            PLACE_CUE.test(transcript) &&
-            !NOT_A_PLACE_QUESTION.test(transcript)
-          ) {
+          } else if (isPlaceQuestion(transcript)) {
             void this.answerPlaceQuestion(transcript);
           }
           this.appendTranscript({
@@ -737,6 +747,40 @@ export class BosonRealtimeClient {
    * (testing: Notre Place "means the star", the Naylor Building "houses the Faculty of Law"). For those
    * questions the app runs the lookup itself and has the guide answer from the result.
    */
+  /**
+   * A line the user typed (or clicked in the demo page), handled like speech: shown as their caption,
+   * place questions go through the app-side lookup, and non-English lines get a language reminder.
+   */
+  sendUserUtterance(text: string): void {
+    if (this.state !== "open") return;
+    this.appendTranscript({
+      id: `user_${Date.now()}`,
+      role: "user",
+      text,
+      timestamp: Date.now(),
+      status: "done",
+    });
+    if (!this.toolCtx.getProfile().calibrated) {
+      this.unsavedCalibrationAnswer = text;
+      this.calibrationNudged = false;
+    } else if (isPlaceQuestion(text)) {
+      if (this.responseSpoke || this.fillerActive) void this.handleBargeIn();
+      if (this.startPlaceLookup(text)) return;
+    }
+    const language = detectLanguage(text);
+    this.sendUserText(
+      language ? `${text}\n[Reply in ${language}, and keep speaking ${language} until I switch.]` : text,
+      true,
+      true
+    );
+  }
+
+  private startPlaceLookup(question: string): boolean {
+    if (this.placeLookupPending || this.toolBatchInFlight) return false;
+    void this.answerPlaceQuestion(question);
+    return true;
+  }
+
   private async answerPlaceQuestion(question: string): Promise<void> {
     if (this.placeLookupPending || this.toolBatchInFlight) return;
     this.placeLookupPending = true;
@@ -764,7 +808,7 @@ export class BosonRealtimeClient {
     this.placeLookupPending = false;
     this.responseInFlight = false;
     this.sendUserText(
-      `[PLACE_LOOKUP] I asked: "${question}". Lookup result: ${summary} Answer from this result in one or two sentences, in the language I asked in: say what the place is and the one most interesting fact, and tell me which way it is if it is not right here. Only if the result is clearly about a different place, say which place you found and ask if that is the one I meant.`,
+      `[PLACE_LOOKUP] I asked: "${question}". Lookup result: ${summary} Answer from this result in one or two sentences, in ${detectLanguage(question) ?? "the language I asked in"}: say what the place is and the one most interesting fact, and tell me which way it is if the result gives a direction. Do not mention the tour route or whether it is a stop. Only if the result is clearly about a different place, say which place you found and ask if that is the one I meant.`,
       true,
       true
     );
