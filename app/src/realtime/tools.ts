@@ -258,9 +258,15 @@ async function handleSaveCalibration(
   ctx: ToolExecutionContext
 ): Promise<ToolResult> {
   const current = ctx.getProfile();
+  // Higgs sometimes sends topics as one string ("architecture, history") instead of an array.
   const topics = Array.isArray(args.topics)
     ? (args.topics as TourTopic[])
-    : current.topics;
+    : typeof args.topics === "string" && args.topics.trim()
+      ? (args.topics
+          .split(/[,;]|\band\b/)
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean) as TourTopic[])
+      : current.topics;
   const story_style =
     typeof args.story_style === "string"
       ? (args.story_style as UserCalibrationProfile["story_style"])
@@ -696,10 +702,11 @@ async function handlePlanOrUpdateRoute(
   ctx: ToolExecutionContext,
   savedProfile?: UserCalibrationProfile
 ): Promise<ToolResult> {
-  const mode: TourMode =
-    args.mode === "guided_tour" ? "guided_tour" : "wandering";
-  const maxStops = Math.min(12, Math.max(2, Number(args.max_stops || 8)));
   const current = savedProfile ?? ctx.getProfile();
+  // Keep the current mode unless the model asks for one; a bare "make it 5 stops" must not drop the tour.
+  const mode: TourMode =
+    args.mode === "guided_tour" || args.mode === "wandering" ? args.mode : current.mode;
+  const maxStops = Math.min(12, Math.max(2, Number(args.max_stops || 8)));
 
   if (mode === "guided_tour" && !current.calibrated) {
     return {

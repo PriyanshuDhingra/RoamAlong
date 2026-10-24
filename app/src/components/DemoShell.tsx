@@ -21,7 +21,7 @@ const BEZEL = 14;
 
 const STEPS: { title: string; body: string; lines: string[] }[] = [
   {
-    title: "Pick Tours at the top, then Start walk",
+    title: "Start walk",
     body: "Allow the microphone. Oliver, your guide, says hello and asks what you're into. Talk over him any time; he stops and listens.",
     lines: [],
   },
@@ -41,7 +41,7 @@ const STEPS: { title: string; body: string; lines: string[] }[] = [
   },
   {
     title: "Walk the tour",
-    body: "Use Auto-walk below to follow the route, or your real location if you're out in Toronto. He speaks up as you pass landmarks.",
+    body: "Say yes to the tour, then let the app walk you along it. Oliver speaks up as you pass landmarks.",
     lines: ["Sounds good, let's go!", "What's the next stop?"],
   },
   {
@@ -155,17 +155,25 @@ export function DemoShell() {
                   </button>
                 ))}
                 {i === 3 && (
-                  <div className="row">
-                    <button className="primary" onClick={() => send("autowalk", { speed: 1.4 })}>
-                      {state?.autoWalking ? "Stop walking" : "Auto-walk"}
-                    </button>
-                    <button onClick={() => send("autowalk", { speed: 4 })} disabled={state?.autoWalking}>
-                      Fast-forward ×3
-                    </button>
-                    <button onClick={() => send(state?.gps ? "reset_location" : "gps")}>
-                      {state?.gps ? "Back to Queen's Park" : "Use my location"}
-                    </button>
-                  </div>
+                  <>
+                    <div className="row">
+                      <button
+                        className="primary"
+                        onClick={() => send("autowalk")}
+                        disabled={!state?.stops}
+                      >
+                        {state?.autoWalking ? "⏸ Pause walk" : "▶ Walk the route for me"}
+                      </button>
+                      <button onClick={() => send(state?.gps ? "reset_location" : "gps")}>
+                        {state?.gps ? "Back to Queen's Park" : "Use my real location"}
+                      </button>
+                    </div>
+                    <p className="note">
+                      {state?.stops
+                        ? "Moves you along the route at about 4× walking pace, stopping whenever Oliver talks."
+                        : "Available once Oliver has planned your tour."}
+                    </p>
+                  </>
                 )}
               </div>
             </li>
@@ -237,6 +245,7 @@ const CSS = `
   button.primary { background: #0f766e; border-color: #0f766e; color: #fff; font-weight: 600; }
   button.line { display: block; text-align: left; margin: 0 0 6px; background: #f1f5f9; border-color: transparent; }
   .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .note { margin: 6px 0 0 !important; font-size: 12px !important; color: #94a3b8 !important; }
   .type { display: flex; gap: 8px; }
   .type input { flex: 1; font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
   footer { font-size: 12px; color: #94a3b8; line-height: 1.5; }

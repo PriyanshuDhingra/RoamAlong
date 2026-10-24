@@ -47,7 +47,7 @@ export const DEFAULT_CALIBRATION_PROFILE: UserCalibrationProfile = {
   story_style: "witty_local_friend",
   proactivity: "balanced",
   languages: ["English"],
-  mode: "wandering",
+  mode: "guided_tour",
   voice: "oliver",
   updatedAt: Date.now(),
 };

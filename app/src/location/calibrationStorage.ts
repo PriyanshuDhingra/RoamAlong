@@ -14,9 +14,9 @@ export function loadSavedCalibrationProfile(): UserCalibrationProfile {
         return {
           ...DEFAULT_CALIBRATION_PROFILE,
           ...parsed,
-          // Each visit starts in Wander, uncalibrated. A saved guided mode has no route yet.
+          // Each visit starts in Tours, uncalibrated: the guide asks what they like, then plans the route.
           calibrated: false,
-          mode: "wandering",
+          mode: "guided_tour",
         };
       }
     }

@@ -26,6 +26,9 @@ import { haversineMeters } from "../../shared/geo.js";
 import { MinimalMap } from "./components/MinimalMap.js";
 import { VoiceChrome } from "./components/VoiceChrome.js";
 
+/** Demo-page walk speed: about four times walking pace, so a seated tester covers a stop in ~30 s. */
+const DEMO_WALK_SPEED_MPS = 6;
+
 export const App: React.FC = () => {
   // Supports remote server URL when phone and backend are on different networks
   // via ?server=https://your-tunnel.trycloudflare.com or VITE_API_BASE_URL / EXPO_PUBLIC_API_URL
@@ -200,9 +203,11 @@ export const App: React.FC = () => {
           break;
         case "autowalk":
           if (locationManager.isAutoWalking()) locationManager.stopAutoWalk();
-          else {
-            locationManager.setSpeed(msg.speed ?? 1.4);
-            locationManager.startAutoWalk(activeRouteRef.current?.polyline);
+          else if (activeRouteRef.current) {
+            locationManager.startAutoWalk(
+              activeRouteRef.current.polyline,
+              msg.speed ?? DEMO_WALK_SPEED_MPS
+            );
           }
           break;
         case "gps":
@@ -221,6 +226,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (window.parent === window) return;
+    // The demo walk is fast, so hold still while Oliver talks; otherwise he'd describe stops already passed.
+    locationManager.setAutoWalkPaused(rtClient.activity === "speaking");
     window.parent.postMessage(
       {
         type: "ROAMALONG_STATE",
