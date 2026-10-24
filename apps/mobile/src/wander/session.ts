@@ -125,8 +125,8 @@ export class GuideClient {
         this.audio.flush();
         break;
       case 'transcript':
-        if (m.role === 'user') s.addLine({ id: m.item_id, role: 'user', text: m.text, final: true });
-        else s.upsertLine({ id: m.item_id, role: 'assistant', text: m.text, final: m.final });
+        // upsert for both roles: the same item can be reported more than once (e.g. a re-sent final transcript)
+        s.upsertLine({ id: `${m.role}:${m.item_id}`, role: m.role, text: m.text, final: m.role === 'user' || m.final });
         break;
       case 'card':
         s.set({ card: m });
