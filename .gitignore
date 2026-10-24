@@ -9,6 +9,10 @@ __pycache__/
 .venv*/
 .pytest_cache/
 .ruff_cache/
+.tools/
+.local/
+scripts/
+dev.cmd
 
 # node
 node_modules/
