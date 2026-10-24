@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.pyc
+.venv*/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+.expo/
+dist/
+
+# data (raw downloads and staging outputs are reproducible with `make data`)
+data/raw/
+data/staging/
+data/valhalla/
+*.osm.pbf
+
+# os
+.DS_Store

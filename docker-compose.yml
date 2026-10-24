@@ -1,0 +1,60 @@
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wander}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wander}
+      POSTGRES_DB: ${POSTGRES_DB:-wander}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wander}"]
+      interval: 5s
+      retries: 20
+
+  valhalla:
+    # Builds routing tiles from VALHALLA_TILE_URL on first start (can take a while for all of Ontario).
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    environment:
+      tile_urls: ${VALHALLA_TILE_URL:-https://download.geofabrik.de/north-america/canada/ontario-latest.osm.pbf}
+      use_tiles_ignore_pbf: "True"
+      build_elevation: "False"
+      build_admins: "True"
+      build_time_zones: "True"
+      serve_tiles: "True"
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data/valhalla:/custom_files
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wander}:${POSTGRES_PASSWORD:-wander}@db:5432/${POSTGRES_DB:-wander}
+      VALHALLA_URL: http://valhalla:8002
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "backend.jobs"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wander}:${POSTGRES_PASSWORD:-wander}@db:5432/${POSTGRES_DB:-wander}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
