@@ -16,10 +16,10 @@ services:
       retries: 20
 
   valhalla:
-    # Builds routing tiles from VALHALLA_TILE_URL on first start (can take a while for all of Ontario).
+    # Builds routing tiles from VALHALLA_TILE_URL (BBBike Toronto extract, ~100 MB) on first start.
     image: ghcr.io/valhalla/valhalla-scripted:latest
     environment:
-      tile_urls: ${VALHALLA_TILE_URL:-https://download.geofabrik.de/north-america/canada/ontario-latest.osm.pbf}
+      tile_urls: ${VALHALLA_TILE_URL:-https://download.bbbike.org/osm/bbbike/Toronto/Toronto.osm.pbf}
       use_tiles_ignore_pbf: "True"
       build_elevation: "False"
       build_admins: "True"

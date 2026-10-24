@@ -33,7 +33,7 @@ docs/        Boson probe findings, device matrix
 Requires [uv](https://docs.astral.sh/uv/), Node 20+, and Docker.
 
 ```bash
-cp .env.example .env          # then fill in BOSON_API_KEY, ANTHROPIC_API_KEY
+cp .env.example .env          # then fill in BOSON_API_KEY and the AZURE_OPENAI_* values
 make setup                    # Python 3.12 env via uv
 make test
 make data                     # OSM + Wikidata ingest for the demo bbox -> data/reports/coverage.md
