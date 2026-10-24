@@ -24,6 +24,8 @@ import websockets
 from fastapi import WebSocket
 
 from backend.director import prompts
+from backend.director.tours import ARRIVE_M, Tour, TourRun
+from backend.geo import valhalla
 from backend.geo.working_set import Nearby, Place, WorkingSet, bearing_deg, haversine_m
 from backend.tools.handlers import TOOLS, ToolResult, run_tool
 
@@ -73,7 +75,7 @@ def detect_script_language(text: str, current: str) -> str:
 
 
 class GuideSession:
-    def __init__(self, app: WebSocket, ws: WorkingSet, hello: Any):
+    def __init__(self, app: WebSocket, ws: WorkingSet, hello: Any, tours: dict[str, Tour] | None = None):
         self.app = app
         self.ws = ws
         self.session_id = f"s_{uuid.uuid4().hex[:12]}"
@@ -85,6 +87,10 @@ class GuideSession:
         self.prefs: list[dict] = []
         self.prefs_changed = False
         self.nav: dict | None = None
+        self.tours = tours or {}
+        self.tour: TourRun | None = None
+        self._route_task: asyncio.Task | None = None
+        self._last_tour_msg = 0.0
 
         # location
         self.pos: tuple[float, float] = (43.6640, -79.3925)  # Queen's Park until the first fix
@@ -189,7 +195,13 @@ class GuideSession:
 
     def situation(self) -> str:
         nav = None
-        if self.nav:
+        if self.tour and not self.tour.finished:
+            r = self.tour
+            nav = (f"guided tour '{r.tour.title}', stop {r.index + 1} of {len(r.tour.stops)}: {r.stop.name}, "
+                   f"{r.stop.distance_m(*self.pos):.0f} m away (~{r.eta_min(*self.pos)} min walk)")
+            if r.route and r.route_for == r.index:
+                nav += f"; next instruction: {self.next_instruction(r.route)}"
+        elif self.nav:
             p = self.nav_progress()
             nav = f"walking to {self.nav['destination']}, {p['remaining_m']} m left; next: {p['next_instruction']}"
         return prompts.situation_block(near=self.top_nearby[:5], street=self.street, speed_class=self.speed_class(),
@@ -202,6 +214,12 @@ class GuideSession:
 
     def nav_language(self) -> str:
         return {"fr": "fr-FR", "es": "es-ES", "ar": "en-US", "hi": "hi-IN"}.get(self.language, "en-US")
+
+    def next_instruction(self, route: dict) -> str:
+        lat, lon = self.pos
+        ms = route["maneuvers"][1:] or route["maneuvers"]
+        m = min(ms, key=lambda m: haversine_m(lat, lon, m["lat"], m["lon"]))
+        return f"{m['instruction']} (in {haversine_m(lat, lon, m['lat'], m['lon']):.0f} m)"
 
     def nav_progress(self) -> dict:
         r = self.nav["route"]
@@ -282,6 +300,14 @@ class GuideSession:
             await self.boson_send({"type": "conversation.item.create", "item": {
                 "type": "message", "role": "user", "content": [{"type": "input_text", "text": m["text"]}]}})
             await self.request_response("answer")
+        elif t == "ui" and m.get("action") == "start_tour" and m.get("tour_id") in self.tours:
+            await self.start_tour(m["tour_id"])
+        elif t == "ui" and m.get("action") == "end_tour":
+            await self.end_tour()
+        elif t == "ui" and m.get("action") == "skip_stop" and self.tour:
+            self.tour.arrived.add(self.tour.index)
+            self.tour.advance()
+            await self.send_tour()
         elif t == "ui" and m.get("action") == "tap_entity" and m.get("entity_id") in self.ws.by_id:
             p = self.ws.by_id[m["entity_id"]]
             await self.cancel_response()
@@ -467,11 +493,83 @@ class GuideSession:
             return
         self.responding = False
         self.active_response = None
-        if purpose["purpose"] in ("proactive", "greeting"):
+        if purpose["purpose"] == "tour_stop" and self.tour:
+            self.tour.advance()
+            if self.tour.finished:
+                await self.send_tour()
+                self.tour = None
+                self.mode = "wander"
+                await self.send_app(self.route_cleared())
+            else:
+                await self.send_tour()
+        if purpose["purpose"] in ("proactive", "greeting", "tour_stop", "tour_intro"):
             self.last_unsolicited = time.monotonic()
             self.waiting_until = time.monotonic() + WAITING_FOR_USER_S
         await self.set_state("QUIET" if self.proactivity == "quiet" else
                              "WAITING_FOR_USER" if purpose["purpose"] in ("proactive", "greeting") else "IDLE")
+
+    # ------------------------------------------------------------------ guided tours (§8)
+
+    async def start_tour(self, tour_id: str, *, intro_spoken: bool = False) -> TourRun:
+        self.tour = TourRun(self.tours[tour_id], started=intro_spoken)
+        self.mode = "tour"
+        self.greeted = True  # the tour intro replaces the generic greeting
+        await self.send_state()
+        await self.send_tour()
+        return self.tour
+
+    async def end_tour(self) -> None:
+        if self.tour:
+            self.tour.finished = True
+            await self.send_tour()
+        self.tour = None
+        self.mode = "wander"
+        await self.send_state()
+        await self.send_app(self.route_cleared())
+
+    def route_cleared(self) -> dict:
+        lon_lat = [self.pos[1], self.pos[0]]
+        return {"type": "route", "route_id": "none", "geojson": {"type": "LineString", "coordinates": [lon_lat, lon_lat]},
+                "maneuvers": [], "eta_s": 0, "cleared": True}
+
+    async def send_tour(self) -> None:
+        if self.tour:
+            self._last_tour_msg = time.monotonic()
+            await self.send_app(self.tour.message(*self.pos))
+
+    async def tour_tick(self) -> None:
+        """Keep a walking route to the current stop, refresh ETA, and buzz at turns (§9.2, simplified)."""
+        r = self.tour
+        if r is None or r.finished or not self.has_fix:
+            return
+        if r.route_for != r.index and (self._route_task is None or self._route_task.done()):
+            self._route_task = asyncio.create_task(self.fetch_leg(r, r.index))
+        if r.route and r.route_for == r.index:
+            lat, lon = self.pos
+            for m in r.route["maneuvers"][1:-1]:
+                d = haversine_m(lat, lon, m["lat"], m["lon"])
+                if d < 20 and m["index"] not in r.cued:
+                    r.cued.add(m["index"])
+                    await self.send_app({"type": "nav_cue", "maneuver_idx": m["index"], "distance_m": round(d),
+                                         "earcon": "turn_now"})
+        if time.monotonic() - self._last_tour_msg > 10:
+            await self.send_tour()
+
+    async def fetch_leg(self, r: TourRun, index: int) -> None:
+        lat, lon = self.pos
+        stop = r.tour.stops[index]
+        try:
+            route = await valhalla.route(lat, lon, stop.lat, stop.lon, language=self.nav_language())
+        except Exception as e:  # noqa: BLE001 — routing down: the tour still works with straight-line estimates
+            log.warning("tour leg routing failed: %s", e)
+            r.route_for = index
+            return
+        if self.tour is not r or r.index != index:
+            return  # stale: the user skipped ahead meanwhile (§5.7)
+        r.route, r.route_for = route, index
+        await self.send_app({"type": "route", "route_id": f"tour_{r.tour.id}_{index}", "geojson": route["geojson"],
+                             "maneuvers": route["maneuvers"], "eta_s": route["eta_s"]})
+        await self.send_tour()
 
     async def request_response(self, purpose: str, *, briefing: str | None = None,
                                entity: Place | None = None) -> None:
@@ -553,6 +651,7 @@ class GuideSession:
             if self.boson is None:
                 continue
             self.refresh_nearby()
+            await self.tour_tick()
             await self.push_situation()
             decision = self.decide()
             if decision:
@@ -575,6 +674,13 @@ class GuideSession:
             return None
         if now - self.last_user_turn_end < AFTER_USER_S:
             return None
+        r = self.tour
+        if r and not r.finished:
+            if not r.started:
+                return {"action": "TOUR_INTRO", "place": r.stop}
+            d = r.stop.distance_m(*self.pos)
+            if d <= ARRIVE_M and r.index not in r.arrived:
+                return {"action": "TOUR_STOP", "place": r.stop, "side": "nearby", "distance_m": d}
         if not self.greeted:
             return {"action": "GREETING"}
         if now - self.last_unsolicited < COOLDOWN_S.get(self.proactivity, 45):
@@ -583,6 +689,8 @@ class GuideSession:
             p = n.place
             if p.id in self.introduced or not (p.hero or p.chunks):
                 continue
+            if r and not r.finished and p.id in {s.id for s in r.tour.stops[r.index:]}:
+                continue  # save upcoming tour stops for their arrival story
             if n.distance_m <= HOOK_RADIUS_M["hero" if p.hero else "other"] and n.side != "behind":
                 dwelling = self.slow_since is not None and now - self.slow_since >= 8  # §7.1 dwell
                 action = "OFFER" if self.speed > 1.8 else "DEEP" if dwelling else "HOOK"
@@ -595,6 +703,9 @@ class GuideSession:
             self.last_unsolicited = time.monotonic()
             await self.request_response("greeting", briefing=prompts.GREETING)
             return
+        if d["action"] in ("TOUR_INTRO", "TOUR_STOP"):
+            await self.speak_tour(d)
+            return
         p: Place = d["place"]
         self.introduced.add(p.id)
         extra = {"OFFER": "The user is walking fast: just name it and offer the story in one sentence.",
@@ -604,3 +715,22 @@ class GuideSession:
                                  speed_class=self.speed_class(), extra=extra).strip()
         await self.send_card(p)
         await self.request_response("proactive", briefing=brief, entity=p)
+
+    async def speak_tour(self, d: dict) -> None:
+        r = self.tour
+        assert r is not None
+        stop: Place = d["place"]
+        if d["action"] == "TOUR_INTRO":
+            r.started = True
+            brief = prompts.tour_intro(r.tour, first=stop, eta_min=r.eta_min(*self.pos))
+            await self.request_response("tour_intro", briefing=brief, entity=stop)
+            await self.send_card(stop)
+            return
+        r.arrived.add(r.index)
+        self.introduced.add(stop.id)
+        nxt = r.next_stop
+        nxt_eta = max(1, round(nxt.distance_m(stop.lat, stop.lon) * 1.3 / 1.3 / 60)) if nxt else None
+        brief = prompts.tour_stop(r.tour, stop=stop, number=r.index + 1, next_stop=nxt, next_eta_min=nxt_eta)
+        await self.send_card(stop)
+        await self.send_tour()
+        await self.request_response("tour_stop", briefing=brief, entity=stop)

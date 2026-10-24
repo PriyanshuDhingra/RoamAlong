@@ -67,6 +67,9 @@
           "$ref": "#/definitions/State"
         },
         {
+          "$ref": "#/definitions/Tour"
+        },
+        {
           "$ref": "#/definitions/Debug"
         },
         {
@@ -356,7 +359,9 @@
             "tap_entity",
             "tap_map",
             "start_tour",
-            "stop_nav"
+            "stop_nav",
+            "end_tour",
+            "skip_stop"
           ]
         },
         "entity_id": {
@@ -745,6 +750,106 @@
         "maneuver_idx",
         "distance_m",
         "earcon"
+      ],
+      "additionalProperties": false
+    },
+    "TourStop": {
+      "title": "TourStop",
+      "type": "object",
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "lat": {
+          "type": "number"
+        },
+        "lon": {
+          "type": "number"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "current",
+            "upcoming"
+          ]
+        }
+      },
+      "required": [
+        "entity_id",
+        "name",
+        "lat",
+        "lon",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Tour": {
+      "title": "Tour",
+      "description": "Guided tour progress (§8); sent on start, arrival, each new leg and end",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tour"
+        },
+        "tour_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "ended"
+          ]
+        },
+        "current": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TourStop"
+          }
+        },
+        "leg_eta_min": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "leg_distance_m": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "tour_id",
+        "title",
+        "status",
+        "current",
+        "stops"
       ],
       "additionalProperties": false
     },

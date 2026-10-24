@@ -4,8 +4,34 @@
     {
       "name": "gateway",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "uvicorn", "backend.gateway.main:app", "--port", "8000", "--reload", "--reload-dir", "backend", "--reload-dir", "apps"],
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "backend.gateway.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "backend",
+        "--reload-dir",
+        "apps"
+      ],
       "port": 8000
+    },
+    {
+      "name": "metro",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--dev-client",
+        "--port",
+        "8081"
+      ],
+      "cwd": "apps/mobile",
+      "port": 8081
     }
   ]
 }

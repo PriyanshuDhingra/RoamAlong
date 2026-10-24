@@ -18,17 +18,24 @@ load_dotenv(ROOT / ".env")
 sys.path.insert(0, str(ROOT / "protocol" / "gen" / "py"))
 from messages import Error, Hello, UplinkMessage
 
+from backend.director.tours import load_tours
 from backend.gateway.session import GuideSession
 from backend.geo.working_set import TALKABLE, WorkingSet
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="Wander Gateway")
 WS = WorkingSet.load()
+TOURS = load_tours(WS)
 
 
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/v1/tours")
+async def tours() -> list[dict]:
+    return [t.summary() for t in TOURS.values()]
 
 
 @app.get("/v1/places/heroes")
@@ -71,7 +78,7 @@ async def session(ws: WebSocket) -> None:
         await ws.close(code=1008)
         return
     try:
-        await GuideSession(ws, WS, hello).run()
+        await GuideSession(ws, WS, hello, TOURS).run()
     finally:
         with contextlib.suppress(RuntimeError, WebSocketDisconnect):  # already closed by the client
             await ws.close()

@@ -51,6 +51,12 @@ TOOLS: list[dict] = [
          "action": {"type": "string", "enum": ["start", "stop", "next_instruction", "status"]},
          "destination": {"type": "string", "description": "Place name or entity id"}},
          "required": ["action"]}},
+    {"type": "function", "name": "tour",
+     "description": "Guided tours: list them, start one, skip the current stop, or end the tour.",
+     "parameters": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["list", "start", "skip_stop", "end"]},
+         "tour_id": {"type": "string", "description": "For start; from the list result"}},
+         "required": ["action"]}},
     {"type": "function", "name": "save_preference",
      "description": "Save a preference the user clearly stated about what they like to learn about, eat, or how they "
                     "like to be guided. Not for one-off requests.",
@@ -230,6 +236,35 @@ async def navigate(s: GuideSession, args: dict) -> ToolResult:
                        "first_instructions": [m["instruction"] for m in first]}, focus=[dest], route=r)
 
 
+async def tour(s: GuideSession, args: dict) -> ToolResult:
+    action = args.get("action")
+    if action == "list" or (action == "start" and args.get("tour_id") not in s.tours):
+        return ToolResult({"tours": [{"tour_id": t.id, "title": t.title, "subtitle": t.subtitle,
+                                      "minutes": t.duration_min, "stops": [p.name for p in t.stops]}
+                                     for t in s.tours.values()],
+                           "note": "Offer them by title in one sentence each; start one when the user picks."})
+    if action == "start":
+        run = await s.start_tour(args["tour_id"], intro_spoken=True)
+        return ToolResult({"started": run.tour.title, "theme": run.tour.theme, "first_stop": run.stop.name,
+                           "walk_min": run.eta_min(*s.pos),
+                           "note": "Give the theme in one sentence and tell them to follow the line on the map to "
+                                   "the first stop. You'll tell the story when they arrive."}, focus=[run.stop])
+    if not s.tour:
+        return ToolResult({"status": "no_tour", "note": "No tour is running."})
+    if action == "skip_stop":
+        skipped = s.tour.stop.name
+        s.tour.arrived.add(s.tour.index)
+        s.tour.advance()
+        await s.send_tour()
+        nxt = None if s.tour.finished else s.tour.stop
+        return ToolResult({"skipped": skipped, "next_stop": nxt.name if nxt else None,
+                           "walk_min": s.tour.eta_min(*s.pos) if nxt else None}, focus=[nxt] if nxt else [])
+    if action == "end":
+        await s.end_tour()
+        return ToolResult({"ended": True, "note": "Say goodbye to the tour in a few words; keep wandering with them."})
+    return ToolResult({"status": "error", "error": f"unknown action {action}"})
+
+
 async def save_preference(s: GuideSession, args: dict) -> ToolResult:
     value = args.get("value", "").strip()
     if not value or not args.get("evidence"):
@@ -266,6 +301,6 @@ async def report_correction(s: GuideSession, args: dict) -> ToolResult:
 
 HANDLERS: dict[str, Any] = {
     "lookup": lookup, "resolve_reference": resolve_reference, "find_places": find_places, "navigate": navigate,
-    "save_preference": save_preference, "forget_preference": forget_preference, "set_guide_style": set_guide_style,
+    "tour": tour, "save_preference": save_preference, "forget_preference": forget_preference, "set_guide_style": set_guide_style,
     "report_correction": report_correction,
 }

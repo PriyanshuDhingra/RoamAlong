@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
+from urllib.parse import quote
 
 from pipeline.common import distance_to_geom_m
 
@@ -92,6 +93,12 @@ class Place:
     def wd(self) -> dict:
         return self.attrs.get("wd", {})
 
+    @property
+    def image_url(self) -> str | None:
+        """Wikimedia Commons thumbnail from Wikidata P18 (CC-licensed; the file page has the attribution)."""
+        f = self.wd.get("image")
+        return f"https://commons.wikimedia.org/wiki/Special:FilePath/{quote(f.replace(' ', '_'))}?width=640" if f else None
+
     def one_liner(self) -> str:
         """Short spoken-ready descriptor for the SITUATION block, from structured data only."""
         bits = []
@@ -150,7 +157,8 @@ class Place:
         geom = self.geometry or {"type": "Point", "coordinates": [self.lon, self.lat]}
         return {"type": "Feature", "id": self.id, "geometry": geom,
                 "properties": {"id": self.id, "name": self.name, "names": self.names, "kind": self.kind,
-                               "hero": self.hero, "height_m": self.height_m or 12}}
+                               "hero": self.hero, "height_m": self.height_m or 12, "image_url": self.image_url,
+                               "summary": self.one_liner()}}
 
 
 @dataclass

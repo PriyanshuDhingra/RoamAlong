@@ -196,7 +196,9 @@ class Ui(BaseModel):
         extra='forbid',
     )
     type: Literal['ui']
-    action: Literal['tap_entity', 'tap_map', 'start_tour', 'stop_nav']
+    action: Literal[
+        'tap_entity', 'tap_map', 'start_tour', 'stop_nav', 'end_tour', 'skip_stop'
+    ]
     entity_id: str | None = None
     lat: float | None = None
     lon: float | None = None
@@ -343,6 +345,34 @@ class NavCue(BaseModel):
     earcon: Literal['turn_soon', 'turn_now', 'arrived', 'off_route']
 
 
+class TourStop(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    entity_id: str
+    name: str
+    lat: float
+    lon: float
+    image_url: str | None = None
+    summary: str | None = None
+    status: Literal['done', 'current', 'upcoming']
+
+
+class Tour(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    type: Literal['tour']
+    tour_id: str
+    title: str
+    subtitle: str | None = None
+    status: Literal['active', 'ended']
+    current: Annotated[int, Field(ge=0)]
+    stops: list[TourStop]
+    leg_eta_min: int | None = None
+    leg_distance_m: int | None = None
+
+
 class State(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -400,6 +430,7 @@ class DownlinkMessage(
         | Route
         | NavCue
         | State
+        | Tour
         | Debug
         | Error
     ]
@@ -413,6 +444,7 @@ class DownlinkMessage(
         | Route
         | NavCue
         | State
+        | Tour
         | Debug
         | Error,
         Field(description='Gateway -> App', title='DownlinkMessage'),

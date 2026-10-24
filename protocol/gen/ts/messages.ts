@@ -24,7 +24,7 @@ export type LocationSource = "gps" | "sim";
  * via the `definition` "DownlinkMessage".
  */
 export type DownlinkMessage =
-  Ready | StopPlayback | Transcript | MapFocus | Card | Route | NavCue | State | Debug | Error;
+  Ready | StopPlayback | Transcript | MapFocus | Card | Route | NavCue | State | Tour | Debug | Error;
 /**
  * This interface was referenced by `WanderProtocol`'s JSON-Schema
  * via the `definition` "EntityKind".
@@ -160,7 +160,7 @@ export interface Control {
  */
 export interface Ui {
   type: "ui";
-  action: "tap_entity" | "tap_map" | "start_tour" | "stop_nav";
+  action: "tap_entity" | "tap_map" | "start_tour" | "stop_nav" | "end_tour" | "skip_stop";
   entity_id?: string;
   lat?: number;
   lon?: number;
@@ -360,6 +360,36 @@ export interface State {
   guide_state: GuideState;
   language: string;
   proactivity: Proactivity;
+}
+/**
+ * Guided tour progress (§8); sent on start, arrival, each new leg and end
+ *
+ * This interface was referenced by `WanderProtocol`'s JSON-Schema
+ * via the `definition` "Tour".
+ */
+export interface Tour {
+  type: "tour";
+  tour_id: string;
+  title: string;
+  subtitle?: string;
+  status: "active" | "ended";
+  current: number;
+  stops: TourStop[];
+  leg_eta_min?: number | null;
+  leg_distance_m?: number | null;
+}
+/**
+ * This interface was referenced by `WanderProtocol`'s JSON-Schema
+ * via the `definition` "TourStop".
+ */
+export interface TourStop {
+  entity_id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  image_url?: string | null;
+  summary?: string;
+  status: "done" | "current" | "upcoming";
 }
 /**
  * Only sent when hello.debug=true

@@ -37,6 +37,10 @@
     {
       "type": "text",
       "text": "What's that building with the tower?"
+    },
+    {
+      "type": "ui",
+      "action": "skip_stop"
     }
   ],
   "downlink": [
@@ -141,6 +145,27 @@
       "code": "billing",
       "message": "Boson credits exhausted",
       "fatal": true
+    },
+    {
+      "type": "tour",
+      "tour_id": "queens-park-lost-river",
+      "title": "Under Your Feet",
+      "subtitle": "Queen's Park",
+      "status": "active",
+      "current": 0,
+      "stops": [
+        {
+          "entity_id": "e_2e7be14d24",
+          "name": "Ontario Legislative Building",
+          "lat": 43.6626,
+          "lon": -79.3917,
+          "image_url": null,
+          "summary": "legislature",
+          "status": "current"
+        }
+      ],
+      "leg_eta_min": 3,
+      "leg_distance_m": 180
     }
   ],
   "invalid_uplink": [
