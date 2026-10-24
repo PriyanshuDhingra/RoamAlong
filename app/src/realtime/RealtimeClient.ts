@@ -7,6 +7,8 @@ import {
 } from "./tools.js";
 
 const BOSON_WS_URL = "wss://api.boson.ai/v1/realtime";
+/** Mic level (0..1, ≈ RMS × 4) that counts as the user talking over the guide; above typical echo residue. */
+const LOCAL_BARGE_IN_LEVEL = 0.22;
 const SLOW_TOOLS = new Set([
   "get_spatial_briefing",
   "deep_dive_poi",
@@ -78,6 +80,11 @@ export class BosonRealtimeClient {
   private handledCallIds = new Set<string>();
   private responseInFlight = false;
   private toolBatchInFlight = false;
+  /** The user spoke while client tools were running: Boson's VAD answers them, so skip our response.create. */
+  private toolBatchSuperseded = false;
+  /** Local barge-in: consecutive loud mic frames while the guide talks, and the timer that undoes a false duck. */
+  private loudFrames = 0;
+  private duckTimer: ReturnType<typeof setTimeout> | null = null;
   private activeResponseId: string | null = null;
   private cancelledResponseId: string | null = null;
   private currentAssistantItemId: string | null = null;
@@ -271,7 +278,9 @@ export class BosonRealtimeClient {
               threshold: 0.82,
               prefix_padding_ms: 300,
               silence_duration_ms: 650,
-              min_speech_duration: 0.4,
+              // 0.4 s made short interjections ("wait—") never register and long ones land late; Boson's
+              // default is 0.125 s. 0.2 s still ignores coughs and clicks.
+              min_speech_duration: 0.2,
             },
           },
           output: {
@@ -287,13 +296,16 @@ export class BosonRealtimeClient {
     this.audio.unlock();
     try {
       await this.audio.startMicrophone((base64Pcm) => {
-        if (this.state === "open" && !this.toolBatchInFlight) {
+        if (this.state === "open") {
           this.send({
             type: "input_audio_buffer.append",
             audio: base64Pcm,
           });
         }
-      }, this.onMicLevel);
+      }, (level) => {
+        this.detectLocalBargeIn(level);
+        this.onMicLevel?.(level);
+      });
     } catch (err) {
       this.appendTranscript({
         id: `mic_err_${Date.now()}`,
@@ -606,6 +618,10 @@ export class BosonRealtimeClient {
       this.send(out);
     }
     this.toolBatchInFlight = false;
+    if (this.toolBatchSuperseded) {
+      this.toolBatchSuperseded = false;
+      return;
+    }
     this.send({ type: "response.create" });
   }
 
@@ -696,9 +712,44 @@ export class BosonRealtimeClient {
     if (wasPlaying) void this.audio.flushPlayback();
   }
 
+  /**
+   * Instant, local half of barge-in. Boson's `speech_started` needs a network round trip plus VAD time, so as soon
+   * as the mic is clearly loud for ~100 ms while the guide is talking, duck the guide to 15 %. Boson's event then
+   * flushes for real; if it never comes (a cough, a passing car), the volume comes back after 900 ms.
+   */
+  private detectLocalBargeIn(level: number): void {
+    const guideTalking = this.activity === "speaking" || this.fillerActive;
+    if (!guideTalking) {
+      this.loudFrames = 0;
+      return;
+    }
+    this.loudFrames = level >= LOCAL_BARGE_IN_LEVEL ? this.loudFrames + 1 : 0;
+    if (this.loudFrames < 2 || this.duckTimer) return; // capture frames are 50 ms
+    this.audio.setPlaybackGain(0.15);
+    this.duckTimer = setTimeout(() => {
+      this.duckTimer = null;
+      this.audio.setPlaybackGain(1);
+    }, 900);
+  }
+
+  private clearDuck(): void {
+    if (this.duckTimer) {
+      clearTimeout(this.duckTimer);
+      this.duckTimer = null;
+    }
+    this.loudFrames = 0;
+  }
+
   private async handleBargeIn(): Promise<void> {
+    this.clearDuck();
     this.cancelToolFiller();
-    if (this.toolBatchInFlight) return;
+    if (this.toolBatchInFlight) {
+      // Tools are still running: their outputs still go into the conversation, but Boson's VAD now answers
+      // the user's new turn, so don't request another response when the batch finishes.
+      this.toolBatchSuperseded = true;
+      this.setActivity("listening");
+      return;
+    }
     if (this.activeResponseId) {
       this.cancelledResponseId = this.activeResponseId;
     }
@@ -780,6 +831,7 @@ export class BosonRealtimeClient {
 
   async disconnect(): Promise<void> {
     this.connecting = false;
+    this.clearDuck();
     this.cancelToolFiller();
     this.responseInFlight = false;
     this.toolBatchInFlight = false;
