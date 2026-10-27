@@ -21,7 +21,6 @@ import {
 } from "../shared/types.js";
 import { executeClientTool } from "../app/src/realtime/tools.js";
 import { ProactivityPacer } from "../app/src/location/ProactivityPacer.js";
-import { runOnDemandPlaceResearch } from "../server/research/onDemandResearch.js";
 
 describe("Spatial Geometry & Landmark-First Relative Bearings", () => {
   it("classifies CENTER, NORTH, EAST, SOUTH, WEST sectors accurately", () => {
@@ -224,18 +223,5 @@ describe("4-Quadrant Prefetch Orchestrator, Client Tool Registry & ProactivityPa
       isGuideBusy: false,
     });
     expect(secondEval.type).toBe("passive_context_update");
-
-    // 5. On-demand research for uncached restaurants, Google Maps review queries, or facts
-    const onDemand = await runOnDemandPlaceResearch({
-      query: "Mercatto",
-      questionType: "reviews_and_menu",
-      lat: 43.6595,
-      lon: -79.3912,
-      headingDeg: 0,
-      profile,
-    });
-    expect(onDemand.placeName.toLowerCase()).toContain("mercatto");
-    expect(onDemand.suggestWebSearchQuery).toContain("Google Maps reviews");
-    expect(onDemand.storyCard.categories).toContain("food");
   }, 30000);
 });

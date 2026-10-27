@@ -184,27 +184,6 @@ export async function savePersistedTile(
   void upstashSet(`handheld:tile:${cacheKey}`, record);
 }
 
-/**
- * Reads a single Landmark `StoryCard` by `osmId + profileKey` across L1 Memory, L3 Disk, and L2 Cloud Redis.
- */
-export async function getPersistedPoiStory(
-  poiCacheKey: string
-): Promise<StoryCard | undefined> {
-  ensureDiskLoaded();
-  const memHit = l1PoiCache.get(poiCacheKey);
-  if (memHit) return memHit;
-
-  const cloudHit = await upstashGet<StoryCard>(
-    `handheld:poi:${poiCacheKey}`
-  );
-  if (cloudHit) {
-    l1PoiCache.set(poiCacheKey, cloudHit);
-    scheduleDiskFlush();
-    return cloudHit;
-  }
-  return undefined;
-}
-
 export function getPersistedPoiStorySync(
   poiCacheKey: string
 ): StoryCard | undefined {

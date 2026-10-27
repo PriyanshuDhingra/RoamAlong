@@ -15,17 +15,8 @@ node_modules/
 .expo/
 dist/
 
-# data (raw downloads and staging outputs are reproducible with `make data`)
-data/raw/
-data/staging/
-data/valhalla/
-*.osm.pbf
-
 # os
 .DS_Store
-
-# probe logs (raw model output; summaries live in docs/boson-findings.md)
-data/probes/
 
 # research app caches and local tooling
 .cache/

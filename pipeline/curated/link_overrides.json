@@ -1,5 +1,0 @@
-{
-  "reject": [
-    { "osm_id": "n364861014", "qid": "Q180865", "why": "UofT Art Centre node tagged with the University of Toronto's QID" }
-  ]
-}
