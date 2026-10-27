@@ -103,10 +103,9 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const [chatDraft, setChatDraft] = useState("");
   const live = props.connection === "open";
   const connecting = props.connection === "connecting";
+  const researching = props.activity === "searching";
   const speaking =
-    props.activity === "speaking" ||
-    props.activity === "thinking" ||
-    props.activity === "searching";
+    props.activity === "speaking" || props.activity === "thinking";
   const lastLine = [...props.transcript].reverse().find((item) => item.role === "assistant");
   const guided = props.profile.mode === "guided_tour";
   const route = guided ? props.activeRoute : null;
@@ -121,11 +120,13 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const dot =
     props.connection === "open" ? "#008A05" : connecting ? "#F5A623" : "#B0B0B0";
   const stateLabel = live
-    ? speaking
-      ? "speaking"
-      : props.micActive
-        ? "listening"
-        : "muted"
+    ? researching
+      ? "researching"
+      : speaking
+        ? "speaking"
+        : props.micActive
+          ? "listening"
+          : "muted"
     : "offline";
 
   useEffect(() => {
@@ -341,7 +342,8 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
             live={live}
             connecting={connecting}
             micOn={props.micActive}
-            speaking={speaking}
+            speaking={speaking || researching}
+            researching={researching}
             onPress={() => (live ? props.onToggleMic() : props.onStartTour())}
           />
         </div>
@@ -543,12 +545,14 @@ function TalkButton({
   connecting,
   micOn,
   speaking,
+  researching,
   onPress,
 }: {
   live: boolean;
   connecting: boolean;
   micOn: boolean;
   speaking: boolean;
+  researching: boolean;
   onPress: () => void;
 }) {
   const listening = live && micOn;
@@ -557,9 +561,11 @@ function TalkButton({
     : !live
       ? "Start walk"
       : micOn
-        ? speaking
-          ? "Guide speaking"
-          : "Listening"
+        ? researching
+          ? "Researching"
+          : speaking
+            ? "Guide speaking"
+            : "Listening"
         : "Tap to talk";
   const icon = !live ? (
     <Play size={30} fill="currentColor" strokeWidth={0} />

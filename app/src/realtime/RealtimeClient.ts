@@ -7,6 +7,35 @@ import {
 } from "./tools.js";
 
 const BOSON_WS_URL = "wss://api.boson.ai/v1/realtime";
+function fillerKindForTool(name: string): string {
+  switch (name) {
+    case "plan_or_update_route":
+      return "route";
+    case "get_navigation_cue":
+      return "way";
+    case "get_spatial_briefing":
+      return "around";
+    case "deep_dive_poi":
+    case "lookup_place_reviews_and_facts":
+      return "place";
+    case "web_search":
+      return "web";
+    default:
+      return "check";
+  }
+}
+
+function subjectFromTool(call: Record<string, unknown>): string {
+  let args: Record<string, unknown> = {};
+  try {
+    args = JSON.parse(String(call.arguments || "{}"));
+  } catch {
+    args = {};
+  }
+  const raw = args.landmark_name || args.query || args.label;
+  return typeof raw === "string" ? raw : "";
+}
+
 const SLOW_TOOLS = new Set([
   "get_spatial_briefing",
   "deep_dive_poi",
@@ -94,6 +123,11 @@ export class BosonRealtimeClient {
   private fillerEpoch = 0;
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private fillerActive = false;
+  private fillerAnnounced = false;
+  private fillerStep = 0;
+  private fillerKind = "check";
+  private fillerSubject = "";
+  private static readonly FILLER_EVERY_MS = 8000;
   private answerHold: string[] | null = null;
   private queuedTurn: string | null = null;
 
@@ -412,7 +446,7 @@ export class BosonRealtimeClient {
           item?.name === "web_search"
         ) {
           this.setActivity("searching");
-          this.scheduleToolFiller(250);
+          this.beginToolFiller("web", this.recentUserSubject(), 250);
           this.appendTranscript({
             id: String(item.call_id || `search_${Date.now()}`),
             role: "tool",
@@ -551,11 +585,14 @@ export class BosonRealtimeClient {
       !this.responseSpoke &&
       validCalls.some((call) => SLOW_TOOLS.has(String(call.name)))
     ) {
-      this.scheduleToolFiller(0);
+      const slow = validCalls.find((call) => SLOW_TOOLS.has(String(call.name)));
+      if (slow) {
+        this.beginToolFiller(fillerKindForTool(String(slow.name)), subjectFromTool(slow), 0);
+      }
     }
     this.toolBatchInFlight = true;
     this.responseInFlight = true;
-    this.setActivity("thinking");
+    this.setActivity("searching");
 
     const outputs = await Promise.all(
       validCalls.map(async (c) => {
@@ -621,11 +658,36 @@ export class BosonRealtimeClient {
     return Boolean(this.activeResponseId && respId !== this.activeResponseId);
   }
 
+  private beginToolFiller(kind: string, subject: string, delayMs: number): void {
+    this.fillerKind = kind;
+    this.fillerSubject = subject;
+    this.fillerStep = 0;
+    this.fillerAnnounced = false;
+    this.scheduleToolFiller(delayMs);
+  }
+
+  private recentUserSubject(): string {
+    const said = [...this.transcriptItems]
+      .reverse()
+      .find((item) => item.role === "user" && item.text && !item.text.startsWith("["));
+    return said?.text ?? "";
+  }
+
+  private stillWaitingOnTool(): boolean {
+    return (
+      !this.responseSpoke &&
+      (this.toolBatchInFlight || this.activity === "searching")
+    );
+  }
+
   private scheduleToolFiller(delayMs: number): void {
-    if (this.responseSpoke || this.fillerActive || this.fillerTimer) return;
+    if (this.responseSpoke || this.fillerTimer) return;
+    if (delayMs > 0 && !this.stillWaitingOnTool()) return;
     this.fillerTimer = setTimeout(() => {
       this.fillerTimer = null;
-      if (!this.responseSpoke) void this.playToolFiller();
+      if (!this.stillWaitingOnTool() && delayMs > 0) return;
+      if (this.responseSpoke) return;
+      void this.playToolFiller();
     }, delayMs);
   }
 
@@ -633,26 +695,55 @@ export class BosonRealtimeClient {
     const epoch = ++this.fillerEpoch;
     const voice = this.toolCtx.getProfile().voice || "mia";
     try {
+      const step = this.fillerStep;
+      const params = new URLSearchParams({
+        voice,
+        kind: this.fillerKind,
+        subject: this.fillerSubject,
+        step: String(step),
+      });
       const res = await fetch(
-        `${this.toolCtx.apiBaseUrl}/api/voice/filler?voice=${encodeURIComponent(voice)}`
+        `${this.toolCtx.apiBaseUrl}/api/voice/filler?${params.toString()}`
       );
       if (!res.ok || epoch !== this.fillerEpoch || this.responseSpoke) return;
       const data = (await res.json()) as { text?: string; audioBase64?: string };
       if (!data.audioBase64 || epoch !== this.fillerEpoch || this.responseSpoke) return;
       this.fillerActive = true;
-      this.setActivity("speaking");
-      const id = `filler_${epoch}`;
+      if (!this.toolBatchInFlight && this.activity !== "searching") {
+        this.setActivity("speaking");
+      }
       const text = data.text || "One sec, I'm checking.";
+      const id = "filler_wait";
       this.currentAssistantItemId = id;
       this.fullTextById.set(id, text);
-      this.appendTranscript({
-        id,
-        role: "assistant",
-        text: "",
-        timestamp: Date.now(),
-        status: "in_progress",
-      });
+      const caption = this.transcriptById.get(id);
+      if (caption) {
+        caption.text = text;
+        caption.status = "in_progress";
+        this.emitTranscript();
+      } else {
+        this.appendTranscript({
+          id,
+          role: "assistant",
+          text,
+          timestamp: Date.now(),
+          status: "in_progress",
+        });
+      }
+      this.fillerStep = step + 1;
       this.audio.pushBase64Pcm16(data.audioBase64);
+      const pcmBytes = Math.floor((data.audioBase64.length * 3) / 4);
+      const durationMs = Math.min(7000, Math.round((pcmBytes / 2 / 24000) * 1000));
+      if (epoch !== this.fillerEpoch || this.responseSpoke) return;
+      this.fillerTimer = setTimeout(() => {
+        this.fillerTimer = null;
+        if (epoch !== this.fillerEpoch || this.responseSpoke) return;
+        this.fillerActive = false;
+        if (!this.stillWaitingOnTool()) return;
+        this.scheduleToolFiller(
+          Math.max(0, BosonRealtimeClient.FILLER_EVERY_MS - durationMs)
+        );
+      }, durationMs);
     } catch {
       // The tool result is still spoken when the lookup finishes.
     }
@@ -665,6 +756,8 @@ export class BosonRealtimeClient {
       this.fillerTimer = null;
     }
     this.fillerEpoch++;
+    this.fillerAnnounced = false;
+    this.fillerStep = 0;
     if (this.fillerActive) {
       this.fillerActive = false;
       this.answerHold = [delta];
@@ -690,6 +783,8 @@ export class BosonRealtimeClient {
       this.fillerTimer = null;
     }
     this.fillerEpoch++;
+    this.fillerAnnounced = false;
+    this.fillerStep = 0;
     const wasPlaying = this.fillerActive;
     this.fillerActive = false;
     this.answerHold = null;

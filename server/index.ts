@@ -31,7 +31,15 @@ export function createApp() {
 
   app.get("/api/voice/filler", async (req, res) => {
     const voice = typeof req.query.voice === "string" ? req.query.voice : "mia";
-    const filler = await getToolFiller(voice);
+    const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
+    const subject = typeof req.query.subject === "string" ? req.query.subject : undefined;
+    const step = Number(req.query.step);
+    const filler = await getToolFiller(
+      voice,
+      kind,
+      subject,
+      Number.isFinite(step) ? step : 0
+    );
     if (!filler) {
       res.status(503).json({ error: "Filler unavailable" });
       return;
