@@ -21,8 +21,6 @@ import {
   reverseGeocodeOsm,
   searchPlaceNominatim,
 } from "./osm/nominatimAndOsrm.js";
-import { fetchWikipediaSummaryByTag } from "./research/wikipediaClient.js";
-import { runOnDemandPlaceResearch } from "./research/onDemandResearch.js";
 import { getCacheStats } from "./cache/persistentStore.js";
 import { getToolFiller } from "./voiceFiller.js";
 
@@ -123,35 +121,19 @@ export function createApp() {
           )
         : allStories[0];
 
-      // If the place is NOT in the prefetched 4-quadrant cache, run live on-demand research!
       if (!matched && queryLower) {
-        const onDemand = await runOnDemandPlaceResearch({
-          query: String(name),
-          questionType: "history_and_facts",
-          lat: Number(lat),
-          lon: Number(lon),
-          headingDeg: 0,
-          profile: { ...DEFAULT_CALIBRATION_PROFILE, ...(profile ?? {}) },
-        });
         res.json({
-          story: onDemand.storyCard,
-          wikipediaExtract: onDemand.answerSummary,
-          reviewAndVibeSynthesis: onDemand.reviewAndVibeSynthesis,
-          suggestWebSearchQuery: onDemand.suggestWebSearchQuery,
+          needsWebSearch: true,
+          query: String(name),
           neighborhood: heartbeat.neighborhood,
           currentStreet: heartbeat.currentStreet,
-          fromOnDemandResearch: true,
         });
         return;
       }
 
-      const wikiExtra = name
-        ? await fetchWikipediaSummaryByTag(`en:${String(name)}`)
-        : undefined;
-
       res.json({
         story: matched,
-        wikipediaExtract: wikiExtra?.extract ?? matched?.narrativeSummary,
+        wikipediaExtract: matched?.narrativeSummary,
         neighborhood: heartbeat.neighborhood,
         currentStreet: heartbeat.currentStreet,
         fromOnDemandResearch: false,
@@ -163,34 +145,13 @@ export function createApp() {
     }
   });
 
-  // 4b. On-demand research for uncached places, restaurants, reviews, or facts
-  app.post("/api/spatial/on-demand", async (req, res) => {
-    try {
-      const {
-        query = "",
-        questionType = "reviews_and_menu",
-        lat = 43.6595,
-        lon = -79.3912,
-        headingDeg = 0,
-        profile,
-      } = req.body ?? {};
-
-      const result = await runOnDemandPlaceResearch({
-        query: String(query),
-        questionType,
-        lat: Number(lat),
-        lon: Number(lon),
-        headingDeg: Number(headingDeg),
-        profile: { ...DEFAULT_CALIBRATION_PROFILE, ...(profile ?? {}) },
-      });
-
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({
-        error:
-          err instanceof Error ? err.message : "On-demand research failed",
-      });
-    }
+  // A named place that is not already prefetched is researched by Boson realtime web_search.
+  app.post("/api/spatial/on-demand", (req, res) => {
+    const query = String(req.body?.query ?? "");
+    res.json({
+      needsWebSearch: true,
+      query,
+    });
   });
 
   // 4c. Street-following walking route from the walker to the next spot

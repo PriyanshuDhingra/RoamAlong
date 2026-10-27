@@ -8,41 +8,29 @@ Full design: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 Phase 0 (foundations), in progress:
 
-- [x] Repo skeleton, docker-compose (Postgres + PostGIS + pgvector + h3, Valhalla, backend, worker), `.env.example`
-- [x] App ↔ Gateway protocol schema with generated TS and pydantic types ([protocol/](protocol/))
-- [x] Gateway stub: `/health` and the `hello` → `ready` handshake
-- [x] OSM + Wikidata ingest for the demo area, entity linking, coverage report ([data/reports/coverage.md](data/reports/coverage.md))
-- [ ] `tools/probe_boson.py` (needs `BOSON_API_KEY`)
 - [ ] Expo dev build + mobile feasibility spike (needs Xcode, Android Studio, physical devices)
 - [ ] Pick the 20–30 hero places from the coverage report
 
 ## Layout
 
 ```
-backend/     FastAPI gateway, director, agents, tools, geo, prefs, data, jobs
-pipeline/    offline ingestion: OSM, Wikidata, linking, coverage report, DB loader
+pipeline/    offline ingestion: OSM, Wikidata, linking
 protocol/    messages.schema.json (source of truth) + generated types in gen/
-apps/        mobile (Expo) and debug-web (Vite) — not scaffolded yet
-db/          Postgres image with PostGIS, pgvector, h3-pg; schema in db/init/
 data/        raw/ and staging/ are gitignored and rebuilt by `make data`; reports/ is committed
 docs/        Boson probe findings, device matrix
+server/      live tour API: place research, routes, Boson session tokens
+app/         live web and phone guide
 ```
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/), Node 20+, and Docker.
+Requires Node 20+.
 
 ```bash
 cp .env.example .env          # then fill in BOSON_API_KEY and the AZURE_OPENAI_* values
-make setup                    # Python 3.12 env via uv
-make test
-make data                     # OSM + Wikidata ingest for the demo bbox -> data/reports/coverage.md
-make up && make db-load       # start Postgres and load entities
-docker compose up valhalla    # first start builds routing tiles (slow for all of Ontario; see .env.example)
-uv run uvicorn backend.gateway.main:app --reload
+npm install
+npm run dev                   # API on :3000 and the web guide
 ```
-
-`make protocol` regenerates `protocol/gen/` after editing the schema.
 
 ## Data and attribution
 

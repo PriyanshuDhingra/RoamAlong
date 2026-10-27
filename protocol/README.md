@@ -22,4 +22,4 @@ Don't edit `gen/` by hand. After changing the schema:
 protocol/generate.sh
 ```
 
-This writes `gen/ts/messages.ts` (for `apps/mobile` and `apps/debug-web`) and `gen/py/messages.py` (pydantic v2, for the backend). Example messages in `examples/` are validated by `backend/tests/test_protocol.py`.
+This writes `gen/ts/messages.ts` and `gen/py/messages.py`.

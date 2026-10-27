@@ -1,4 +1,5 @@
 import type {
+  PlaceNote,
   QuadrantSector,
   RawOsmPoi,
   StoryCard,
@@ -14,6 +15,8 @@ export interface SectorSynthesisInput {
   countryCode: string;
   pois: (RawOsmPoi & { wiki?: WikiSummary })[];
   profile: UserCalibrationProfile;
+  /** Search the web before writing. Used for the block the walker is heading toward. */
+  useWebSearch?: boolean;
 }
 
 export function getAzureConfig() {
@@ -197,6 +200,20 @@ export async function synthesizeSectorStories(
   return { stories, synthesizedBy: "azure_openai" };
 }
 
+function normalizeNotes(raw: unknown): PlaceNote[] {
+  if (!Array.isArray(raw)) return [];
+  const notes: PlaceNote[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const claim = String((item as { claim?: unknown }).claim ?? "").trim();
+    const source = String((item as { source?: unknown }).source ?? "").trim();
+    if (claim.length < 8) continue;
+    notes.push(source ? { claim, source } : { claim });
+    if (notes.length >= 8) break;
+  }
+  return notes;
+}
+
 async function callAzureOpenAiSectorAgent(
   azure: ReturnType<typeof getAzureConfig>,
   input: SectorSynthesisInput
@@ -218,7 +235,10 @@ async function callAzureOpenAiSectorAgent(
     `2. Revelation over Dry Facts: Craft a vivid 2-to-3 sentence spoken story tailored to the user's preferred style (${input.profile.story_style}) and topics (${input.profile.topics.join(", ")}).`,
     `3. Provocation: Include a short 1-sentence follow-up question that invites 2-way conversation.`,
     `4. Multilingual Touch: Include a relevant local phrase, architectural term, or culinary expression in its original language or one of the user's languages (${input.profile.languages.join(", ")}).`,
-    `Return valid JSON matching: { "stories": [ { "osmId", "name", "categories", "sensoryHook", "narrativeSummary", "hiddenTrivia", "followUpQuestion", "localLanguagePhrase": { "phrase", "language", "meaning" }, "score" } ] }`,
+    input.useWebSearch
+      ? "Use web_search on each place before you write. Ground the story in a real fact from that search: what it is known for, why people go, or what reviewers say. Do not invent ratings, hours, or history. Also keep up to 8 notes: { claim, source }. claim is one factual sentence. source is the page or publication name. Only include claims the search actually supported."
+      : "Write only from the supplied tags and wiki extracts. Do not invent ratings, hours, or history. Leave notes empty.",
+    `Return ONLY a JSON object matching: { "stories": [ { "osmId", "name", "categories", "sensoryHook", "narrativeSummary", "hiddenTrivia", "followUpQuestion", "localLanguagePhrase": { "phrase", "language", "meaning" }, "notes": [ { "claim", "source" } ], "score" } ] }`,
   ].join(" ");
 
   const rawContent = await callAzureJsonModel({
@@ -231,8 +251,8 @@ async function callAzureOpenAiSectorAgent(
       userTopics: input.profile.topics,
       pois: topPois,
     },
-    useWebSearch: false,
-    timeoutMs: 14000,
+    useWebSearch: Boolean(input.useWebSearch),
+    timeoutMs: input.useWebSearch ? 24000 : 14000,
   });
 
   const parsed = JSON.parse(rawContent) as {
@@ -267,6 +287,7 @@ async function callAzureOpenAiSectorAgent(
       narrativeSummary: item.narrativeSummary || "",
       hiddenTrivia: item.hiddenTrivia || "",
       followUpQuestion: item.followUpQuestion || "",
+      notes: normalizeNotes(item.notes),
       localLanguagePhrase: item.localLanguagePhrase,
       geometry: source.geometry,
       address: source.tags["addr:street"]
@@ -275,6 +296,7 @@ async function callAzureOpenAiSectorAgent(
           }`.trim()
         : undefined,
       wikipediaUrl: source.wiki?.url,
+      webResearched: Boolean(input.useWebSearch),
       score: typeof item.score === "number" ? item.score : 85 - idx * 5,
     };
   });

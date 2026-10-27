@@ -75,6 +75,11 @@ export interface RawOsmPoi {
   sector?: QuadrantSector;
 }
 
+export interface PlaceNote {
+  claim: string;
+  source?: string;
+}
+
 export interface StoryCard {
   id: string;
   osmId: string;
@@ -87,6 +92,8 @@ export interface StoryCard {
   narrativeSummary: string;
   hiddenTrivia: string;
   followUpQuestion: string;
+  /** Sourced facts behind the short story. Empty when the search returned nothing worth keeping. */
+  notes?: PlaceNote[];
   localLanguagePhrase?: {
     phrase: string;
     language: string;
@@ -95,6 +102,8 @@ export interface StoryCard {
   geometry?: GeoPoint[];
   address?: string;
   wikipediaUrl?: string;
+  /** True when the quadrant agent searched the web before writing this story. */
+  webResearched?: boolean;
   score: number;
 }
 

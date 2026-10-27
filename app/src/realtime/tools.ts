@@ -97,7 +97,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "deep_dive_poi",
     description:
-      "Look up detailed historical, architectural, engineering, or culinary stories and Wikipedia facts about a specific building or landmark the user asks about (even if not in the prefetched cache). Say a brief acknowledgement before calling.",
+      "Read the short prefetched story for a landmark already researched around the user. Use this when you want the spoken version. If that place is not in the cache, call web_search instead. This tool does not search the web.",
     parameters: {
       type: "object",
       properties: {
@@ -113,7 +113,7 @@ export const BOSON_SESSION_TOOLS = [
     type: "function",
     name: "lookup_place_reviews_and_facts",
     description:
-      "Call this whenever the user asks about a restaurant, cafe, shop, building, or local fact that is NOT yet covered in the prefetched N/S/E/W context, OR when they ask for reviews, ratings, popular dishes, or opening hours for a nearby place. Pair this with `web_search` if live Google Maps / Yelp reviews or current web facts are needed.",
+      "Read the longer sourced notes for a place already researched around the user: dates, people, reviews, dishes, and where each claim came from. Use this when the user asks for a fact the short story does not contain. If the place or those notes are not in the cache, call web_search yourself. This tool does not search the web.",
     parameters: {
       type: "object",
       properties: {
@@ -492,68 +492,63 @@ async function handleGetSpatialBriefing(
   };
 }
 
+function findCachedStory(
+  hb: SpatialHeartbeatResponse | null,
+  query: string
+): StoryCard | undefined {
+  const q = query.trim().toLowerCase();
+  if (!hb || !q) return undefined;
+  return Object.values(hb.sectors)
+    .flatMap((sector) => sector.stories)
+    .find(
+      (story) =>
+        story.name.toLowerCase().includes(q) ||
+        q.includes(story.name.toLowerCase())
+    );
+}
+
+function cachedStorySummary(story: StoryCard): string {
+  return `${story.name}: ${story.sensoryHook} ${story.narrativeSummary} Hidden trivia: ${story.hiddenTrivia}. Optional aside, not a required question: ${story.followUpQuestion}`;
+}
+
+function cachedNotesSummary(story: StoryCard): string | undefined {
+  const notes = story.notes ?? [];
+  if (notes.length === 0) return undefined;
+  const lines = notes
+    .map((note) => (note.source ? `${note.claim} (${note.source})` : note.claim))
+    .join("; ");
+  return `${story.name} notes: ${lines}. If these notes do not answer the user's question, call web_search. Do not invent the missing fact.`;
+}
+
+function missMeansWebSearch(query: string): ToolResult {
+  return {
+    summary: `"${query}" is not in the prefetched research for this block. Call web_search now for facts about "${query}" near the user. Do not invent the details.`,
+  };
+}
+
 async function handleDeepDivePoi(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext
 ): Promise<ToolResult> {
   const landmarkName = String(args.landmark_name || "");
-  const loc = ctx.getLocation();
+  const story = findCachedStory(ctx.getLatestHeartbeat(), landmarkName);
+  if (!story) return missMeansWebSearch(landmarkName);
 
-  const res = await fetch(`${ctx.apiBaseUrl}/api/spatial/deep-dive`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: landmarkName,
-      lat: loc.lat,
-      lon: loc.lon,
-      profile: ctx.getProfile(),
-    }),
+  ctx.onMapHighlight({
+    targetType: "building",
+    osmId: story.osmId,
+    label: story.name,
+    subtitle: story.hiddenTrivia || story.sensoryHook,
+    lat: story.lat,
+    lon: story.lon,
+    geometry: story.geometry,
+    category: story.categories[0],
+    timestamp: Date.now(),
   });
 
-  if (!res.ok) {
-    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-    return {
-      summary: `Deep-dive error for ${landmarkName}: ${
-        errBody.error || `HTTP ${res.status}`
-      }`,
-      error: errBody.error || "deep_dive_failed",
-    };
-  }
-
-  const data = (await res.json()) as {
-    story?: StoryCard;
-    wikipediaExtract?: string;
-    neighborhood?: string;
-  };
-
-  if (data.story) {
-    ctx.onMapHighlight({
-      targetType: "building",
-      osmId: data.story.osmId,
-      label: data.story.name,
-      subtitle: data.story.hiddenTrivia,
-      lat: data.story.lat,
-      lon: data.story.lon,
-      geometry: data.story.geometry,
-      category: data.story.categories[0],
-      timestamp: Date.now(),
-    });
-  }
-
-  const story = data.story;
-  const summary = story
-    ? `${story.name}: ${story.sensoryHook} ${
-        data.wikipediaExtract || story.narrativeSummary
-      } Hidden trivia: ${story.hiddenTrivia}. Optional aside, not a required question: ${
-        story.followUpQuestion
-      }`
-    : `Found background on ${landmarkName}: ${
-        data.wikipediaExtract || "A notable landmark in this neighborhood."
-      }`;
-
   return {
-    summary,
-    detail: data,
+    summary: cachedStorySummary(story),
+    detail: story,
   };
 }
 
@@ -562,84 +557,25 @@ async function handleLookupPlaceReviewsAndFacts(
   ctx: ToolExecutionContext
 ): Promise<ToolResult> {
   const query = String(args.query || "").trim();
-  const questionType = String(args.question_type || "reviews_and_menu");
-  const loc = ctx.getLocation();
+  const story = findCachedStory(ctx.getLatestHeartbeat(), query);
+  const notesSummary = story ? cachedNotesSummary(story) : undefined;
+  if (!story || !notesSummary) return missMeansWebSearch(query);
 
-  const res = await fetch(`${ctx.apiBaseUrl}/api/spatial/on-demand`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query,
-      questionType,
-      lat: loc.lat,
-      lon: loc.lon,
-      headingDeg: loc.headingDeg,
-      profile: ctx.getProfile(),
-    }),
-  });
-
-  if (!res.ok) {
-    return {
-      summary: `Could not find local OSM data for "${query}". Call web_search to look up live web reviews or facts for "${query}".`,
-      error: "on_demand_lookup_failed",
-    };
-  }
-
-  const data = (await res.json()) as {
-    foundInOsm: boolean;
-    placeName: string;
-    lat: number;
-    lon: number;
-    distanceMeters: number;
-    relativeDirection: string;
-    clockPosition: string;
-    category: TourTopic;
-    address?: string;
-    openingHours?: string;
-    cuisine?: string;
-    answerSummary: string;
-    reviewAndVibeSynthesis: string;
-    suggestWebSearchQuery?: string;
-    storyCard: StoryCard;
-  };
-
-  // Spotlight the newly researched place on the minimalist map!
   ctx.onMapHighlight({
     targetType: "building",
-    osmId: data.storyCard.osmId,
-    label: data.placeName,
-    subtitle: `${data.distanceMeters}m ${data.relativeDirection} (${data.clockPosition}) · ${data.answerSummary.slice(0, 90)}`,
-    lat: data.lat,
-    lon: data.lon,
-    geometry: data.storyCard.geometry,
-    category: data.category,
+    osmId: story.osmId,
+    label: story.name,
+    subtitle: story.notes?.[0]?.claim || story.sensoryHook,
+    lat: story.lat,
+    lon: story.lon,
+    geometry: story.geometry,
+    category: story.categories[0],
     timestamp: Date.now(),
   });
 
-  // Also inject the newly discovered StoryCard into the current CENTER sector cache so future turns know it
-  const hb = ctx.getLatestHeartbeat();
-  if (hb && hb.sectors.CENTER) {
-    const exists = hb.sectors.CENTER.stories.some(
-      (s) => s.name.toLowerCase() === data.placeName.toLowerCase()
-    );
-    if (!exists) {
-      hb.sectors.CENTER.stories.unshift(data.storyCard);
-      ctx.setLatestHeartbeat({ ...hb });
-    }
-  }
-
-  const hoursText = data.openingHours ? ` Hours: ${data.openingHours}.` : "";
-  const cuisineText = data.cuisine ? ` Cuisine: ${data.cuisine}.` : "";
-
   return {
-    summary: `${data.placeName} (${data.distanceMeters}m ${data.relativeDirection} at ${data.clockPosition}${
-      data.address ? `, ${data.address}` : ""
-    }): ${data.answerSummary}${cuisineText}${hoursText} Vibe & reviews: ${
-      data.reviewAndVibeSynthesis
-    } (If the user asked for specific Google Maps ratings or live customer quotes, also call web_search with "${
-      data.suggestWebSearchQuery
-    }").`,
-    detail: data,
+    summary: notesSummary,
+    detail: { name: story.name, notes: story.notes },
   };
 }
 

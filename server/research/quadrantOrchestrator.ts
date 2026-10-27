@@ -14,7 +14,7 @@ import {
   angularSpanOffHeading,
   bearingDegrees,
   cardinalFromHeading,
-  getSectorOffsetCenter,
+  classifySector,
   haversineMeters,
   movePointByMeters,
   relativeClockAndDirection,
@@ -24,18 +24,12 @@ import { fetchOverpassPoisBatch } from "../osm/overpassClient.js";
 import {
   fetchOsrmWalkingRoute,
   reverseGeocodeOsm,
+  type ReverseGeocodeResult,
 } from "../osm/nominatimAndOsrm.js";
-import {
-  fetchWikipediaGeoSearch,
-  fetchWikipediaSummaryByTag,
-  type WikiSummary,
-} from "./wikipediaClient.js";
 import { synthesizeSectorStories } from "./azureSynthesizer.js";
 import {
   getPersistedPoiStorySync,
-  getPersistedTile,
   savePersistedPoiStory,
-  savePersistedTile,
   type PersistedTileRecord,
 } from "../cache/persistentStore.js";
 
@@ -47,7 +41,26 @@ const ALL_SECTORS: QuadrantSector[] = [
   "WEST",
 ];
 
-const inFlightTilePromises = new Map<string, Promise<PersistedTileRecord>>();
+const CURRENT_RADIUS_M = 100;
+const AHEAD_RADIUS_M = 100;
+const AHEAD_CENTER_M = 150;
+const ROUTE_CORRIDOR_M = 100;
+const RESEARCH_BATCH = 8;
+
+interface DiskResearch {
+  stories: StoryCard[];
+  neighborhood: string;
+  currentStreet: string;
+  city: string;
+  countryCode: string;
+}
+
+const diskResults = new Map<string, DiskResearch>();
+const diskInFlight = new Map<string, Promise<DiskResearch>>();
+
+function diskKey(point: GeoPoint, radius: number): string {
+  return `${point.lat.toFixed(3)},${point.lon.toFixed(3)}:${radius}`;
+}
 
 function makeProfileKey(profile: SpatialHeartbeatRequest["profile"]): string {
   return `${[...profile.topics].sort().join(",")}:${profile.story_style}`;
@@ -73,212 +86,193 @@ export function prioritizeSectorsByHeading(
   return ordered;
 }
 
+function emptyGeo(): ReverseGeocodeResult {
+  return {
+    currentStreet: "this street",
+    neighborhood: "this area",
+    city: "",
+    countryCode: "",
+    displayName: "",
+  };
+}
+
+async function researchPois(
+  pois: RawOsmPoi[],
+  profile: SpatialHeartbeatRequest["profile"],
+  geo: ReverseGeocodeResult,
+  useWebSearch: boolean
+): Promise<StoryCard[]> {
+  const profileKey = makeProfileKey(profile);
+  const stories: StoryCard[] = [];
+  const pending: RawOsmPoi[] = [];
+  for (const poi of pois) {
+    const existing =
+      getPersistedPoiStorySync(poi.osmId) ??
+      getPersistedPoiStorySync(`${poi.osmId}:${profileKey}`);
+    const hasNotes = (existing?.notes?.length ?? 0) > 0;
+    if (existing && (!useWebSearch || (existing.webResearched && hasNotes))) {
+      stories.push(existing);
+    } else if (poi.name.trim()) {
+      pending.push(poi);
+    }
+  }
+
+  const chunks: RawOsmPoi[][] = [];
+  for (let i = 0; i < pending.length; i += RESEARCH_BATCH) {
+    chunks.push(pending.slice(i, i + RESEARCH_BATCH));
+  }
+
+  const written = await Promise.all(
+    chunks.map(async (chunk) => {
+      const input = {
+        sector: chunk[0]?.sector ?? ("CENTER" as QuadrantSector),
+        neighborhood: geo.neighborhood,
+        city: geo.city,
+        countryCode: geo.countryCode,
+        pois: chunk,
+        profile,
+      };
+      try {
+        return await synthesizeSectorStories({ ...input, useWebSearch });
+      } catch (err) {
+        if (!useWebSearch) throw err;
+        return synthesizeSectorStories({ ...input, useWebSearch: false });
+      }
+    })
+  );
+
+  for (const res of written) {
+    for (const story of res.stories) {
+      savePersistedPoiStory(story.osmId, story);
+      stories.push(story);
+    }
+  }
+  return stories;
+}
+
+async function researchDisk(
+  center: GeoPoint,
+  radius: number,
+  profile: SpatialHeartbeatRequest["profile"],
+  useWebSearch: boolean
+): Promise<DiskResearch> {
+  const key = diskKey(center, radius);
+  const cached = diskResults.get(key);
+  if (cached) return cached;
+  const pending = diskInFlight.get(key);
+  if (pending) return pending;
+
+  const job = (async () => {
+    let geo = emptyGeo();
+    try {
+      geo = await reverseGeocodeOsm(center);
+    } catch {
+      geo = emptyGeo();
+    }
+    let pois: RawOsmPoi[] = [];
+    try {
+      pois = await fetchOverpassPoisBatch(center, radius, {
+        skipFullMap: true,
+        timeoutMs: 8000,
+      });
+    } catch {
+      pois = [];
+    }
+    const nearest = [...pois].sort(
+      (a, b) => haversineMeters(center, a) - haversineMeters(center, b)
+    );
+    const stories = await researchPois(
+      nearest.slice(0, RESEARCH_BATCH * 2),
+      profile,
+      geo,
+      useWebSearch
+    );
+    return {
+      stories,
+      neighborhood: geo.neighborhood,
+      currentStreet: geo.currentStreet,
+      city: geo.city,
+      countryCode: geo.countryCode,
+    };
+  })().then((result) => {
+    diskResults.set(key, result);
+    return result;
+  });
+
+  diskInFlight.set(key, job);
+  try {
+    return await job;
+  } finally {
+    diskInFlight.delete(key);
+  }
+}
+
+function spawnAheadResearch(
+  origin: GeoPoint,
+  headingDeg: number,
+  profile: SpatialHeartbeatRequest["profile"]
+): void {
+  const center = movePointByMeters(origin, headingDeg, AHEAD_CENTER_M);
+  const key = diskKey(center, AHEAD_RADIUS_M);
+  if (diskResults.has(key) || diskInFlight.has(key)) return;
+  void researchDisk(center, AHEAD_RADIUS_M, profile, true).catch(() => undefined);
+}
+
+function heartbeatFromDisk(
+  origin: GeoPoint,
+  headingDeg: number,
+  disk: DiskResearch,
+  profile: SpatialHeartbeatRequest["profile"]
+): SpatialHeartbeatResponse {
+  const { tileKey } = snapToSpatialTile(origin);
+  const sectors = {} as PersistedTileRecord["sectors"];
+  for (const sector of ALL_SECTORS) {
+    sectors[sector] = {
+      sector,
+      tileKey: `${tileKey}_${sector}`,
+      center: origin,
+      stories: [],
+      status: "ready",
+      synthesizedBy: "azure_openai",
+      updatedAt: Date.now(),
+      latencyMs: 0,
+    };
+  }
+  for (const story of disk.stories) {
+    const sector = classifySector(origin, story).sector;
+    sectors[sector].stories.push({ ...story, sector });
+  }
+  return formatHeartbeatResponse(
+    origin,
+    headingDeg,
+    {
+      tileKey,
+      neighborhood: disk.neighborhood,
+      currentStreet: disk.currentStreet,
+      city: disk.city,
+      countryCode: disk.countryCode,
+      sectors,
+      createdAt: Date.now(),
+    },
+    profile
+  );
+}
+
 /**
- * Processes a spatial heartbeat:
- * - In Wandering Mode:
- *   1. Reuses any already-researched landmarks from `poiStoryCache` in 0ms.
- *   2. Resolves `CENTER` + the walker's `Forward` direction immediately for lowest latency,
- *      while warming the remaining peripheral sectors (`LEFT`, `RIGHT`, `BEHIND`) and the
- *      next frontier block ahead in the background.
- * - In Guided Tour Mode:
- *   All stops along the route are prefetched upfront when the route is created.
+ * Wandering: research the 100 m around the walker, then spawn the next 100 m
+ * along their heading without waiting. Each later heartbeat repeats that cycle.
+ * Guided: the route corridor is prefetched when the route is built. A heartbeat
+ * only fills the 100 m around the walker from that store.
  */
 export async function processSpatialHeartbeat(
   req: SpatialHeartbeatRequest
 ): Promise<SpatialHeartbeatResponse> {
   const origin: GeoPoint = { lat: req.lat, lon: req.lon };
-  const { tileKey, snappedCenter } = snapToSpatialTile(origin);
-  // Key spatial tiles by geographic tileKey (`tile_row_col`) so calibrating topics mid-session
-  // never invalidates the cached tile or triggers a 20s cold re-synthesis!
-  const cacheKey = tileKey;
-  const profileKey = makeProfileKey(req.profile);
-
-  // 1. Check L1 Memory + L2 Upstash Cloud Redis + L3 Disk persistent store
-  let entry = await getPersistedTile(cacheKey);
-  if (!entry) {
-    let pending = inFlightTilePromises.get(cacheKey);
-    if (!pending) {
-      pending = buildTileEntry(tileKey, snappedCenter, req, profileKey).finally(
-        () => {
-          inFlightTilePromises.delete(cacheKey);
-        }
-      );
-      inFlightTilePromises.set(cacheKey, pending);
-    }
-    entry = await pending;
-    await savePersistedTile(cacheKey, entry);
+  const disk = await researchDisk(origin, CURRENT_RADIUS_M, req.profile, true);
+  if (req.profile.mode !== "guided_tour") {
+    spawnAheadResearch(origin, req.headingDeg, req.profile);
   }
-
-  // If the user is actively walking in Wandering Mode (>0.6 m/s), silently pre-warm the next tile ahead
-  if (req.profile.mode === "wandering" && req.speedMps >= 0.6) {
-    const lookaheadPoint = movePointByMeters(origin, req.headingDeg, 155);
-    const nextTile = snapToSpatialTile(lookaheadPoint);
-    const nextCacheKey = nextTile.tileKey;
-    if (
-      nextTile.tileKey !== tileKey &&
-      !inFlightTilePromises.has(nextCacheKey)
-    ) {
-      void getPersistedTile(nextCacheKey).then((existingNext) => {
-        if (!existingNext && !inFlightTilePromises.has(nextCacheKey)) {
-          const bgPromise = buildTileEntry(
-            nextTile.tileKey,
-            nextTile.snappedCenter,
-            { ...req, lat: lookaheadPoint.lat, lon: lookaheadPoint.lon },
-            profileKey
-          )
-            .then(async (res) => {
-              await savePersistedTile(nextCacheKey, res);
-              return res;
-            })
-            .finally(() => {
-              inFlightTilePromises.delete(nextCacheKey);
-            });
-          inFlightTilePromises.set(nextCacheKey, bgPromise);
-        }
-      });
-    }
-  }
-
-  return formatHeartbeatResponse(origin, req.headingDeg, entry, req.profile);
-}
-
-async function buildTileEntry(
-  tileKey: string,
-  center: GeoPoint,
-  req: SpatialHeartbeatRequest,
-  profileKey: string
-): Promise<PersistedTileRecord> {
-  const startedAt = Date.now();
-  const [geoInfo, rawPois, geoWikiArticles] = await Promise.all([
-    reverseGeocodeOsm(center),
-    fetchOverpassPoisBatch(center, 360),
-    fetchWikipediaGeoSearch(center, 360, 6),
-  ]);
-
-  // Attach Wikipedia extracts to POIs that have wikipedia tags or matching geosearch titles
-  const enrichedPois: (RawOsmPoi & { wiki?: WikiSummary })[] =
-    await Promise.all(
-      rawPois.slice(0, 24).map(async (poi: RawOsmPoi) => {
-        if (poi.wikipediaTag) {
-          const wiki = await fetchWikipediaSummaryByTag(poi.wikipediaTag);
-          return { ...poi, wiki };
-        }
-        const match = geoWikiArticles.find(
-          (w) =>
-            w.title.toLowerCase().includes(poi.name.toLowerCase()) ||
-            poi.name.toLowerCase().includes(w.title.toLowerCase())
-        );
-        return { ...poi, wiki: match };
-      })
-    );
-
-  // Group POIs into CENTER + the 4 cardinal quadrants (NORTH, SOUTH, EAST, WEST)
-  const grouped: Record<QuadrantSector, typeof enrichedPois> = {
-    CENTER: [],
-    NORTH: [],
-    SOUTH: [],
-    EAST: [],
-    WEST: [],
-  };
-
-  for (const poi of enrichedPois) {
-    const sector: QuadrantSector = poi.sector ?? "CENTER";
-    grouped[sector].push(poi);
-  }
-
-  // Ensure every directional sector has at least 1 candidate if total POIs exist
-  for (const sector of ["NORTH", "SOUTH", "EAST", "WEST"] as QuadrantSector[]) {
-    if (grouped[sector].length === 0 && enrichedPois.length > 0) {
-      const targetCenter = getSectorOffsetCenter(center, sector, 130);
-      const closest = [...enrichedPois].sort(
-        (a, b) =>
-          haversineMeters(targetCenter, a) - haversineMeters(targetCenter, b)
-      )[0];
-      if (closest) {
-        grouped[sector].push({ ...closest, sector });
-      }
-    }
-  }
-
-  const prioritizedSectors = prioritizeSectorsByHeading(req.headingDeg);
-  const immediateSectors = prioritizedSectors.slice(0, 2); // CENTER + Forward walking sector
-  const peripheralSectors = prioritizedSectors.slice(2); // Left, Right, Behind sectors
-  const sectors = {} as Record<QuadrantSector, DirectionalSectorCache>;
-
-  const runSectorSynthesis = async (sector: QuadrantSector) => {
-    const sectorStart = Date.now();
-    const sectorPois = grouped[sector];
-
-    // Check which POIs in this sector are ALREADY in poiStoryCache from an adjacent tile's prefetch
-    const cachedStories: StoryCard[] = [];
-    const uncachedPois: typeof sectorPois = [];
-
-    for (const poi of sectorPois) {
-      const existing =
-        getPersistedPoiStorySync(poi.osmId) ??
-        getPersistedPoiStorySync(`${poi.osmId}:${profileKey}`);
-      if (existing) {
-        cachedStories.push({
-          ...existing,
-          sector,
-          id: `${sector}_${poi.osmId}`,
-        });
-      } else {
-        uncachedPois.push(poi);
-      }
-    }
-
-    let freshStories: StoryCard[] = [];
-    const synthesizedBy: "azure_openai" = "azure_openai";
-
-    if (uncachedPois.length > 0) {
-      const res = await synthesizeSectorStories({
-        sector,
-        neighborhood: geoInfo.neighborhood,
-        city: geoInfo.city,
-        countryCode: geoInfo.countryCode,
-        pois: uncachedPois,
-        profile: req.profile,
-      });
-      freshStories = res.stories;
-
-      for (const s of freshStories) {
-        savePersistedPoiStory(s.osmId, s);
-      }
-    }
-
-    const combinedStories = [...cachedStories, ...freshStories].sort(
-      (a, b) => b.score - a.score
-    );
-
-    sectors[sector] = {
-      sector,
-      tileKey: `${tileKey}_${sector}`,
-      center: getSectorOffsetCenter(center, sector, 130),
-      stories: combinedStories,
-      status: "ready",
-      synthesizedBy,
-      updatedAt: Date.now(),
-      latencyMs: Date.now() - sectorStart,
-    };
-  };
-
-  // Stage 1: Await CENTER + Forward sector immediately so voice guide has zero lag
-  await Promise.all(immediateSectors.map((s) => runSectorSynthesis(s)));
-
-  // Stage 2: Populate fast heuristic placeholders for peripheral sectors immediately,
-  // and let any remaining Azure OpenAI peripheral calls finish in parallel
-  await Promise.all(peripheralSectors.map((s) => runSectorSynthesis(s)));
-
-  return {
-    tileKey,
-    neighborhood: geoInfo.neighborhood,
-    currentStreet: geoInfo.currentStreet,
-    city: geoInfo.city,
-    countryCode: geoInfo.countryCode,
-    sectors,
-    createdAt: startedAt,
-  };
+  return heartbeatFromDisk(origin, req.headingDeg, disk, req.profile);
 }
 
 function formatHeartbeatResponse(
@@ -478,9 +472,88 @@ async function selectStopsForTopics(
   return picked.slice(0, maxStops);
 }
 
+function distanceToPath(point: GeoPoint, path: GeoPoint[]): number {
+  let best = Infinity;
+  for (const vertex of path) {
+    const distance = haversineMeters(point, vertex);
+    if (distance < best) best = distance;
+  }
+  return best;
+}
+
+function samplePath(path: GeoPoint[], spacingM: number): GeoPoint[] {
+  if (path.length === 0) return [];
+  const samples = [path[0]];
+  let since = 0;
+  for (let i = 1; i < path.length; i++) {
+    since += haversineMeters(path[i - 1], path[i]);
+    if (since >= spacingM) {
+      samples.push(path[i]);
+      since = 0;
+    }
+  }
+  const last = path[path.length - 1];
+  if (haversineMeters(samples[samples.length - 1], last) > 1) samples.push(last);
+  return samples;
+}
+
+async function prefetchRouteCorridor(
+  path: GeoPoint[],
+  stops: StoryCard[],
+  profile: SpatialHeartbeatRequest["profile"],
+  geo: ReverseGeocodeResult
+): Promise<StoryCard[]> {
+  const anchors = [
+    ...samplePath(path, 200),
+    ...stops.map((stop) => ({ lat: stop.lat, lon: stop.lon })),
+  ];
+  const lists = await Promise.all(
+    anchors.map((point) =>
+      fetchOverpassPoisBatch(point, 200, {
+        skipFullMap: true,
+        timeoutMs: 8000,
+      }).catch(() => [] as RawOsmPoi[])
+    )
+  );
+  const byId = new Map<string, RawOsmPoi>();
+  for (const poi of lists.flat()) {
+    if (distanceToPath(poi, path) <= ROUTE_CORRIDOR_M) byId.set(poi.osmId, poi);
+  }
+  for (const stop of stops) {
+    if (!byId.has(stop.osmId)) {
+      byId.set(stop.osmId, {
+        osmId: stop.osmId,
+        osmType: "node",
+        name: stop.name,
+        lat: stop.lat,
+        lon: stop.lon,
+        category: stop.categories[0] ?? "trivia",
+        tags: { name: stop.name },
+        geometry: stop.geometry,
+        sector: stop.sector,
+      });
+    }
+  }
+  const stopIds = new Set(stops.map((stop) => stop.osmId));
+  const ranked = [...byId.values()].sort((a, b) => {
+    const aStop = stopIds.has(a.osmId) ? 0 : 1;
+    const bStop = stopIds.has(b.osmId) ? 0 : 1;
+    if (aStop !== bStop) return aStop - bStop;
+    return distanceToPath(a, path) - distanceToPath(b, path);
+  });
+  const chosen = [
+    ...ranked.filter((poi) => stopIds.has(poi.osmId)),
+    ...ranked.filter((poi) => !stopIds.has(poi.osmId)).slice(0, 16),
+  ];
+  try {
+    return await researchPois(chosen, profile, geo, true);
+  } catch {
+    return stops;
+  }
+}
+
 /**
- * Guided Tour Mode: Generates a curated walking route and prefetches all stops along the route upfront
- * so every stop has zero latency when the user arrives.
+ * Guided Tour Mode: builds the route, then prefetches every place within 100 m of it.
  */
 export async function generateGuidedTourRoute(
   origin: GeoPoint,
@@ -529,24 +602,38 @@ export async function generateGuidedTourRoute(
     throw new Error("Not enough places nearby to build a tour yet.");
   }
 
-  // Wikipedia can fill in later. The route has to reach the map before that lookup finishes.
-  const profileKey = makeProfileKey(profile);
-  void Promise.all(
-    orderedStops.map(async (stop) => {
-      const wiki = await fetchWikipediaSummaryByTag(`en:${stop.name}`);
-      if (wiki?.extract && wiki.extract.length > stop.narrativeSummary.length) {
-        stop.narrativeSummary = wiki.extract;
-        stop.wikipediaUrl = wiki.url;
-      }
-      savePersistedPoiStory(`${stop.osmId}:${profileKey}`, stop);
-    })
-  ).catch(() => undefined);
-
   const waypoints: GeoPoint[] = [
     origin,
     ...orderedStops.map((s) => ({ lat: s.lat, lon: s.lon })),
   ];
   const osrmLeg = await fetchOsrmWalkingRoute(waypoints);
+  const corridor = await prefetchRouteCorridor(
+    osrmLeg.polyline.length > 1 ? osrmLeg.polyline : waypoints,
+    orderedStops,
+    profile,
+    {
+      currentStreet: heartbeat.currentStreet,
+      neighborhood: heartbeat.neighborhood,
+      city: heartbeat.city,
+      countryCode: heartbeat.countryCode,
+      displayName: heartbeat.neighborhood,
+    }
+  );
+  const byOsm = new Map(corridor.map((story) => [story.osmId, story]));
+  for (let i = 0; i < orderedStops.length; i++) {
+    const researched = byOsm.get(orderedStops[i].osmId);
+    if (!researched) continue;
+    const previous = orderedStops[i];
+    orderedStops[i] = {
+      ...previous,
+      ...researched,
+      id: previous.id,
+      lat: previous.lat,
+      lon: previous.lon,
+      geometry: previous.geometry ?? researched.geometry,
+      sector: previous.sector,
+    };
+  }
 
   const stops: TourStop[] = orderedStops.map((poi, idx) => ({
     order: idx + 1,

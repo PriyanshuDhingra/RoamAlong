@@ -20,7 +20,6 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 STAGING = ROOT / "data" / "staging"
-REPORTS = ROOT / "data" / "reports"
 
 
 @dataclass(frozen=True)

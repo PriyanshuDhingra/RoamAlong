@@ -255,9 +255,9 @@ async function synthesizeOnDemandAnswer(params: {
   const content = await callAzureJsonModel({
     azure,
     systemPrompt:
-      "You are an on-demand local research agent for a live walking tour. Use web_search to find real reviews, popular dishes, ratings, and historical facts. Synthesize a concise spoken answer (2-3 sentences), local review/vibe consensus, a visual sensory hook, and a follow-up question. Return ONLY a JSON object with keys: sensoryHook, answerSummary, reviewAndVibeSynthesis, followUpQuestion.",
+      "You are writing a short local note for a walking tour from the supplied tags and wiki extract only. Do not search the web and do not invent ratings. Return ONLY a JSON object with keys: sensoryHook, answerSummary, reviewAndVibeSynthesis, followUpQuestion.",
     userPayload: params,
-    useWebSearch: true,
+    useWebSearch: false,
     timeoutMs: 18000,
   });
 
