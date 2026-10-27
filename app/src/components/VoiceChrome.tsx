@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   AudioLines,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   Map,
   Mic,
   MicOff,
@@ -17,24 +19,11 @@ import type {
   SpatialHeartbeatResponse,
   TourMode,
   TourRoute,
-  TourTopic,
   UserCalibrationProfile,
 } from "../../../shared/types.js";
 import type { LocationSnapshot } from "../location/LocationManager.js";
 import { DebugLocationDrawer } from "./DebugLocationDrawer.js";
 import { DebugJoystick } from "./DebugJoystick.js";
-
-const TOPICS: TourTopic[] = [
-  "history",
-  "architecture",
-  "food",
-  "art",
-  "engineering",
-  "nature",
-  "music",
-  "trivia",
-  "news",
-];
 
 const VOICES: { id: UserCalibrationProfile["voice"]; label: string }[] = [
   { id: "mia", label: "Mia" },
@@ -74,7 +63,6 @@ export interface VoiceChromeProps {
   onToggleMic: () => void;
   onSetMode: (mode: TourMode) => void;
   onSetVoice: (voice: UserCalibrationProfile["voice"]) => void;
-  onToggleTopic: (topic: TourTopic) => void;
   onToggleGps: () => void;
   onToggleDebug: () => void;
   onToggleSimulator: () => void;
@@ -101,6 +89,7 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const [hiddenCard, setHiddenCard] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
   const [chatDraft, setChatDraft] = useState("");
+  const [peekIndex, setPeekIndex] = useState<number | null>(null);
   const live = props.connection === "open";
   const connecting = props.connection === "connecting";
   const researching = props.activity === "searching";
@@ -110,13 +99,25 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const guided = props.profile.mode === "guided_tour";
   const route = guided ? props.activeRoute : null;
   const stop = route?.stops[route.currentStopIndex];
+  const shownIndex =
+    route == null
+      ? 0
+      : Math.min(
+          route.stops.length - 1,
+          Math.max(0, peekIndex ?? route.currentStopIndex)
+        );
+  const shown = route?.stops[shownIndex];
   const cardKey = props.highlight
     ? `${props.highlight.label}:${props.highlight.lat.toFixed(5)}`
     : null;
-  const showCard =
+  const highlightIsCurrentStop =
     props.highlight &&
-    cardKey !== hiddenCard &&
-    props.highlight.label !== stop?.poi.name;
+    stop &&
+    (props.highlight.osmId === stop.poi.osmId ||
+      props.highlight.label === stop.poi.name ||
+      props.highlight.label === route?.title);
+  const showCard =
+    props.highlight && cardKey !== hiddenCard && !highlightIsCurrentStop;
   const dot =
     props.connection === "open" ? "#008A05" : connecting ? "#F5A623" : "#B0B0B0";
   const stateLabel = live
@@ -128,6 +129,10 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
           ? "listening"
           : "muted"
     : "offline";
+
+  useEffect(() => {
+    setPeekIndex(null);
+  }, [route?.id, route?.currentStopIndex]);
 
   useEffect(() => {
     const el = captionRef.current;
@@ -255,15 +260,45 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
               ))}
             </div>
             <div className="wg-stop-row">
+              <button
+                type="button"
+                className="wg-stop-arrow"
+                aria-label="See the previous stop"
+                disabled={!shown || shownIndex <= 0}
+                onClick={() => {
+                  const next = shownIndex - 1;
+                  setPeekIndex(next === route.currentStopIndex ? null : next);
+                }}
+              >
+                <ChevronLeft size={18} strokeWidth={2.4} />
+              </button>
               <div className="wg-photo" style={{ width: 44, height: 44, borderRadius: 10 }}>
                 <Building2 size={18} strokeWidth={1.8} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="wg-stop-name">{stop.poi.name}</div>
+                <div className="wg-stop-name">{shown?.poi.name}</div>
                 <div className="wg-stop-sub">
-                  {stop.visited ? "Visited" : "Follow the line on the map"}
+                  {shown?.visited
+                    ? "Visited"
+                    : shownIndex === route.currentStopIndex
+                      ? "Follow the line on the map"
+                      : shownIndex > route.currentStopIndex
+                        ? `Stop ${shownIndex + 1} · ahead on this walk`
+                        : `Stop ${shownIndex + 1} · earlier on this walk`}
                 </div>
               </div>
+              <button
+                type="button"
+                className="wg-stop-arrow"
+                aria-label="See the next stop"
+                disabled={!shown || shownIndex >= route.stops.length - 1}
+                onClick={() => {
+                  const next = shownIndex + 1;
+                  setPeekIndex(next === route.currentStopIndex ? null : next);
+                }}
+              >
+                <ChevronRight size={18} strokeWidth={2.4} />
+              </button>
               <button type="button" className="wg-pill" onClick={props.onEndTour}>
                 End
               </button>
@@ -381,39 +416,24 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
               ))}
             </div>
 
-            <div className="wg-label">What to hear about</div>
-            <div className="wg-chips">
-              {TOPICS.map((topic) => (
-                <button
-                  key={topic}
-                  type="button"
-                  className={`wg-chip${props.profile.topics.includes(topic) ? " on" : ""}`}
-                  onClick={() => props.onToggleTopic(topic)}
-                >
-                  {topic}
-                </button>
-              ))}
-            </div>
-
             <div className="wg-label">Location</div>
-            <div className="wg-chips">
-              <button
-                type="button"
-                className={`wg-chip${props.location.source === "device_gps" ? " on" : ""}`}
-                onClick={props.onToggleGps}
-              >
-                Real GPS
-              </button>
-            </div>
-            <p className="wg-note">Status: {props.connection}.</p>
+            <button
+              type="button"
+              className={`wg-chip${props.location.source === "device_gps" ? " on" : ""}`}
+              aria-pressed={props.location.source === "device_gps"}
+              onClick={props.onToggleGps}
+            >
+              {props.location.source === "device_gps" ? "On" : "Off"}
+            </button>
 
-            <div className="wg-label">Debug tools</div>
+            <div className="wg-label">Debug mode</div>
             <button
               type="button"
               className={`wg-chip${props.debugMode ? " on" : ""}`}
+              aria-pressed={props.debugMode}
               onClick={props.onToggleDebug}
             >
-              {props.debugMode ? "Debug on" : "Debug off"}
+              {props.debugMode ? "On" : "Off"}
             </button>
 
             {live ? (

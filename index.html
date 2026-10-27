@@ -244,6 +244,20 @@
       .wg-dots { display: flex; gap: 4px; }
       .wg-dotbar { height: 4px; border-radius: 2px; }
       .wg-stop-row { display: flex; align-items: center; gap: 10px; }
+      .wg-stop-arrow {
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 50%;
+        background: #F4F4F4;
+        color: #222;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex: none;
+      }
+      .wg-stop-arrow:disabled { opacity: 0.35; cursor: default; }
       .wg-stop-name { font-size: 16px; font-weight: 700; }
       .wg-stop-sub { font-size: 13px; line-height: 18px; color: #6A6A6A; }
       .wg-pill {

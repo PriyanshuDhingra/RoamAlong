@@ -602,17 +602,6 @@ export const App: React.FC = () => {
           setProfile(next);
           if (rtClient.state === "open") rtClient.sendSessionUpdate();
         }}
-        onToggleTopic={(topic) => {
-          const current = profileRef.current;
-          const topics = current.topics.includes(topic)
-            ? current.topics.filter((item) => item !== topic)
-            : [...current.topics, topic];
-          setProfile({
-            ...current,
-            topics: topics.length > 0 ? topics : ["history"],
-            updatedAt: Date.now(),
-          });
-        }}
         onToggleGps={() =>
           locationManager.enableDeviceGps(location.source !== "device_gps")
         }
