@@ -28,7 +28,7 @@ import {
 } from "../osm/nominatimAndOsrm.js";
 import { synthesizeSectorStories } from "./azureSynthesizer.js";
 import {
-  getPersistedPoiStorySync,
+  getPersistedPoiStory,
   savePersistedPoiStory,
   type PersistedTileRecord,
 } from "../cache/persistentStore.js";
@@ -107,8 +107,8 @@ async function researchPois(
   const pending: RawOsmPoi[] = [];
   for (const poi of pois) {
     const existing =
-      getPersistedPoiStorySync(poi.osmId) ??
-      getPersistedPoiStorySync(`${poi.osmId}:${profileKey}`);
+      (await getPersistedPoiStory(poi.osmId)) ??
+      (await getPersistedPoiStory(`${poi.osmId}:${profileKey}`));
     const hasNotes = (existing?.notes?.length ?? 0) > 0;
     if (existing && (!useWebSearch || (existing.webResearched && hasNotes))) {
       stories.push(existing);
@@ -143,7 +143,7 @@ async function researchPois(
 
   for (const res of written) {
     for (const story of res.stories) {
-      savePersistedPoiStory(story.osmId, story);
+      await savePersistedPoiStory(story.osmId, story);
       stories.push(story);
     }
   }
