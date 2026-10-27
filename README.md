@@ -4,7 +4,9 @@
 
 RoamAlong is a truly hands-free, real-time, multilingual audio tour experience. You walk with earbuds in. The guide talks about the place you are in, and you can interrupt, change language, or ask about anything nearby. It sees what you see, without needing any camera. It works everywhere in the world.
 
-<img src="docs/assets/roamalong-ui.jpg" alt="RoamAlong on a phone: a guided walk with eight stops." width="50%" />
+[Demo](https://youtu.be/rjlVUGHJT4M) 
+
+![RoamAlong on a phone: a guided walk with eight stops.](docs/assets/roamalong-ui.jpg)
 
 ## What you can do
 
@@ -143,7 +145,6 @@ To be able to provide a real tour guide experience. We did some engineering so t
 OpenStreetMap list all interesting places given the current location. Then, instead of relying on a fixed source like Wikipedia, we run LLM agents in parallel to search the web and put together interesting facts and a short story for each place. That work happens before you ask. Boson only reads what is already stored, keeping the  response fast and natural. If you ask about a place we haven’t researched yet, Boson uses its own web search.
 
 ### Prefetching
-
 
 On a **Tour Mode**, we assume that the user will follow our guide, so the path is known. So the agent researches every place within about 100 m of the walking line, from the start to the end, before you set off.
 
