@@ -132,12 +132,7 @@ async function researchPois(
         pois: chunk,
         profile,
       };
-      try {
-        return await synthesizeSectorStories({ ...input, useWebSearch });
-      } catch (err) {
-        if (!useWebSearch) throw err;
-        return synthesizeSectorStories({ ...input, useWebSearch: false });
-      }
+      return await synthesizeSectorStories({ ...input, useWebSearch: true });
     })
   );
 

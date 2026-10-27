@@ -24,8 +24,6 @@ export function getAzureConfig() {
   const apiKey = process.env.AZURE_OPENAI_API_KEY?.trim();
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim() || "gpt-5-mini";
-  const apiVersion =
-    process.env.AZURE_OPENAI_API_VERSION?.trim() || "2025-08-07";
 
   if (
     !endpoint ||
@@ -38,144 +36,90 @@ export function getAzureConfig() {
     );
   }
 
+  const normalized = endpoint.replace(/\/+$/, "");
+  if (!normalized.endsWith("/responses")) {
+    throw new Error(
+      "AZURE_OPENAI_ENDPOINT must be an Azure Responses API URL ending in /responses so the research agents can search the web."
+    );
+  }
+
   return {
-    endpoint: endpoint.replace(/\/+$/, ""),
+    endpoint: normalized,
     apiKey,
     deployment,
-    apiVersion,
   };
 }
 
 /**
- * Calls either Azure AI Foundry `/openai/v1/responses` or classic Azure OpenAI `/openai/deployments/.../chat/completions`,
- * returning the raw JSON string or throwing a transparent error with the upstream status & body.
+ * Calls the Azure Responses API with web search and returns the raw JSON string.
  */
 export async function callAzureJsonModel(params: {
   azure: ReturnType<typeof getAzureConfig>;
   systemPrompt: string;
   userPayload: unknown;
-  useWebSearch?: boolean;
   timeoutMs?: number;
 }): Promise<string> {
-  const {
-    azure,
-    systemPrompt,
-    userPayload,
-    useWebSearch = false,
-    timeoutMs = 18000,
-  } = params;
+  const { azure, systemPrompt, userPayload, timeoutMs = 24000 } = params;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const isResponsesApi = azure.endpoint.endsWith("/responses");
-
-    if (isResponsesApi) {
-      const bodyPayload: Record<string, unknown> = {
-        model: azure.deployment,
-        instructions: systemPrompt,
-        input: `Respond in valid JSON format: ${JSON.stringify(userPayload)}`,
-        reasoning: { effort: useWebSearch ? "low" : "minimal" },
-      };
-
-      if (useWebSearch) {
-        bodyPayload.tools = [{ type: "web_search" }];
-      } else {
-        bodyPayload.text = { format: { type: "json_object" } };
-      }
-
-      const response = await fetch(azure.endpoint, {
-        method: "POST",
-        headers: {
-          "api-key": azure.apiKey,
-          Authorization: `Bearer ${azure.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(bodyPayload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timer);
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => "");
-        throw new Error(
-          `Azure Responses API HTTP ${response.status}: ${errBody.slice(0, 400)}`
-        );
-      }
-
-      const data = (await response.json()) as {
-        output_text?: string;
-        output?: {
-          type?: string;
-          content?: { type?: string; text?: string }[];
-        }[];
-      };
-
-      let rawText: string | undefined =
-        typeof data.output_text === "string" && data.output_text
-          ? data.output_text
-          : undefined;
-
-      if (!rawText) {
-        for (const item of data.output ?? []) {
-          if (item.type === "message") {
-            for (const part of item.content ?? []) {
-              if (part.type === "output_text" && part.text) {
-                rawText = part.text;
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      if (!rawText) {
-        throw new Error("Azure Responses API returned empty output_text.");
-      }
-
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      return jsonMatch ? jsonMatch[0] : rawText;
-    }
-
-    const url = `${azure.endpoint}/openai/deployments/${encodeURIComponent(
-      azure.deployment
-    )}/chat/completions?api-version=${encodeURIComponent(azure.apiVersion)}`;
-
-    const response = await fetch(url, {
+    const response = await fetch(azure.endpoint, {
       method: "POST",
       headers: {
         "api-key": azure.apiKey,
+        Authorization: `Bearer ${azure.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: JSON.stringify(userPayload) },
-        ],
-        response_format: { type: "json_object" },
+        model: azure.deployment,
+        instructions: systemPrompt,
+        input: `Respond in valid JSON format: ${JSON.stringify(userPayload)}`,
+        reasoning: { effort: "low" },
+        tools: [{ type: "web_search" }],
       }),
       signal: controller.signal,
     });
 
-    clearTimeout(timer);
     if (!response.ok) {
       const errBody = await response.text().catch(() => "");
       throw new Error(
-        `Azure OpenAI Chat Completions HTTP ${response.status}: ${errBody.slice(
-          0,
-          400
-        )}`
+        `Azure Responses API HTTP ${response.status}: ${errBody.slice(0, 400)}`
       );
     }
 
     const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
+      output_text?: string;
+      output?: {
+        type?: string;
+        content?: { type?: string; text?: string }[];
+      }[];
     };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error("Azure OpenAI Chat Completions returned empty content.");
+
+    let rawText: string | undefined =
+      typeof data.output_text === "string" && data.output_text
+        ? data.output_text
+        : undefined;
+
+    if (!rawText) {
+      for (const item of data.output ?? []) {
+        if (item.type === "message") {
+          for (const part of item.content ?? []) {
+            if (part.type === "output_text" && part.text) {
+              rawText = part.text;
+              break;
+            }
+          }
+        }
+      }
     }
-    return content;
+
+    if (!rawText) {
+      throw new Error("Azure Responses API returned empty output_text.");
+    }
+
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    return jsonMatch ? jsonMatch[0] : rawText;
   } finally {
     clearTimeout(timer);
   }
@@ -235,9 +179,7 @@ async function callAzureOpenAiSectorAgent(
     `2. Revelation over Dry Facts: Craft a vivid 2-to-3 sentence spoken story tailored to the user's preferred style (${input.profile.story_style}) and topics (${input.profile.topics.join(", ")}).`,
     `3. Provocation: Include a short 1-sentence follow-up question that invites 2-way conversation.`,
     `4. Multilingual Touch: Include a relevant local phrase, architectural term, or culinary expression in its original language or one of the user's languages (${input.profile.languages.join(", ")}).`,
-    input.useWebSearch
-      ? "Use web_search on each place before you write. Ground the story in a real fact from that search: what it is known for, why people go, or what reviewers say. Do not invent ratings, hours, or history. Also keep up to 8 notes: { claim, source }. claim is one factual sentence. source is the page or publication name. Only include claims the search actually supported."
-      : "Write only from the supplied tags and wiki extracts. Do not invent ratings, hours, or history. Leave notes empty.",
+    "Use web_search on each place before you write. Ground the story in a real fact from that search: what it is known for, why people go, or what reviewers say. Do not invent ratings, hours, or history. Also keep up to 8 notes: { claim, source }. claim is one factual sentence. source is the page or publication name. Only include claims the search actually supported.",
     `Return ONLY a JSON object matching: { "stories": [ { "osmId", "name", "categories", "sensoryHook", "narrativeSummary", "hiddenTrivia", "followUpQuestion", "localLanguagePhrase": { "phrase", "language", "meaning" }, "notes": [ { "claim", "source" } ], "score" } ] }`,
   ].join(" ");
 
@@ -251,8 +193,7 @@ async function callAzureOpenAiSectorAgent(
       userTopics: input.profile.topics,
       pois: topPois,
     },
-    useWebSearch: Boolean(input.useWebSearch),
-    timeoutMs: input.useWebSearch ? 24000 : 14000,
+    timeoutMs: 24000,
   });
 
   const parsed = JSON.parse(rawContent) as {
@@ -296,7 +237,7 @@ async function callAzureOpenAiSectorAgent(
           }`.trim()
         : undefined,
       wikipediaUrl: source.wiki?.url,
-      webResearched: Boolean(input.useWebSearch),
+      webResearched: true,
       score: typeof item.score === "number" ? item.score : 85 - idx * 5,
     };
   });

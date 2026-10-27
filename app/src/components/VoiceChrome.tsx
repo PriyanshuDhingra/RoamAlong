@@ -330,7 +330,10 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
 
         {!live && !lastLine ? (
           <p className="wg-hint">
-            Put your earbuds in and start a walk. Your guide will tell you about what you pass, and you can ask about anything.
+            Put your earbuds in and enjoy the tour.{" "}
+            {props.profile.voice && props.profile.voice !== "default"
+              ? `${props.profile.voice.charAt(0).toUpperCase()}${props.profile.voice.slice(1)} is smart so you can ask about anything.`
+              : "The guide is smart so you can ask about anything."}
           </p>
         ) : (
           <div className="wg-caption">
