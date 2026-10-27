@@ -133,7 +133,7 @@ flowchart LR
 
   react ~~~ boson
 
-  style boson fill:#e0e7ff,stroke:#6366f1,stroke-width:3px
+  style boson fill:#e0e7ff,stroke:#6366f1,stroke-width:3px,color:#1e1b4b
 ```
 
 ## Some engineering behind
