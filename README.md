@@ -4,7 +4,7 @@
 
 RoamAlong is a truly hands-free, real-time, multilingual audio tour experience. You walk with earbuds in. The guide talks about the place you are in, and you can interrupt, change language, or ask about anything nearby. It sees what you see, without needing any camera. It works everywhere in the world.
 
-![RoamAlong on a phone: a guided walk with eight stops.](docs/assets/roamalong-ui.jpg)
+<img src="docs/assets/roamalong-ui.jpg" alt="RoamAlong on a phone: a guided walk with eight stops." width="50%" />
 
 ## What you can do
 
