@@ -379,6 +379,28 @@
         cursor: pointer;
       }
       .wg-chip.on { background: #111; color: #fff; }
+      .wg-chat {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 14px;
+      }
+      .wg-chat-input {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid #EBEBEB;
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: inherit;
+        font-size: 14px;
+        color: #222222;
+        background: #FFFFFF;
+      }
+      .wg-chat-input:focus {
+        outline: 2px solid #111111;
+        outline-offset: 1px;
+      }
+      .wg-chat-input:disabled { color: #6A6A6A; background: #F7F7F7; }
       .wg-debug {
         position: fixed;
         left: 16px;

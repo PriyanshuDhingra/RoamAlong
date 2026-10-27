@@ -642,6 +642,7 @@ export const App: React.FC = () => {
           locationManager.setAnalogMove(heading, speed)
         }
         onAnalogRelease={() => locationManager.stopAnalogMove()}
+        onSendChat={(text) => rtClient.sendUserText(text)}
       />
     </div>
   );

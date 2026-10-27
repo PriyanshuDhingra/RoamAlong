@@ -89,6 +89,7 @@ export interface VoiceChromeProps {
   onToggleAutoWalk: () => void;
   onAnalogMove: (headingDeg: number, speedMps: number) => void;
   onAnalogRelease: () => void;
+  onSendChat: (text: string) => void;
   transcript: TranscriptItem[];
 }
 
@@ -99,6 +100,7 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
   const suppressGrabClickRef = useRef(false);
   const [hiddenCard, setHiddenCard] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
+  const [chatDraft, setChatDraft] = useState("");
   const live = props.connection === "open";
   const connecting = props.connection === "connecting";
   const speaking =
@@ -308,6 +310,31 @@ export const VoiceChrome: React.FC<VoiceChromeProps> = (props) => {
             ) : null}
           </div>
         )}
+
+        {props.debugMode ? (
+          <form
+            className="wg-chat"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const text = chatDraft.trim();
+              if (!text || !live) return;
+              props.onSendChat(text);
+              setChatDraft("");
+            }}
+          >
+            <input
+              className="wg-chat-input"
+              value={chatDraft}
+              placeholder={live ? "Type to the guide" : "Start the guide to type"}
+              disabled={!live}
+              aria-label="Message the guide"
+              onChange={(event) => setChatDraft(event.target.value)}
+            />
+            <button type="submit" className="wg-pill" disabled={!live || chatDraft.trim().length === 0}>
+              Send
+            </button>
+          </form>
+        ) : null}
 
         <div className="wg-controls">
           <TalkButton
