@@ -9,7 +9,6 @@ import type {
   StoryCard,
   TourRoute,
 } from "../../../shared/types.js";
-import { movePointByMeters } from "../../../shared/geo.js";
 import {
   LocationManager,
   type LocationSnapshot,
@@ -46,73 +45,6 @@ const SECTOR_COLORS: Record<QuadrantSector, string> = {
   WEST: "#fb7185",
 };
 
-/**
- * Builds a closed GeoJSON Polygon ring around a center point if an OSM building footprint polygon
- * is not explicitly attached, so even point-based POIs extrude as a clean 3D architectural volume.
- */
-function buildOctagonFootprint(
-  center: GeoPoint,
-  radiusMeters = 18
-): [number, number][] {
-  const ring: [number, number][] = [];
-  for (let i = 0; i <= 8; i++) {
-    const pt = movePointByMeters(center, (i * 45) % 360, radiusMeters);
-    ring.push([pt.lon, pt.lat]);
-  }
-  return ring;
-}
-
-function footprintForHighlight(highlight: MapHighlightAction): {
-  ring: [number, number][];
-  heightM: number;
-} {
-  const center = { lat: highlight.lat, lon: highlight.lon };
-  const isPlace =
-    highlight.targetType === "building" || highlight.targetType === "neighborhood";
-  const geometry = highlight.geometry;
-  if (isPlace && geometry && geometry.length >= 3 && isCompactFootprint(geometry)) {
-    return {
-      ring: ensureClosedLonLatRing(geometry),
-      heightM: highlight.targetType === "neighborhood" ? 8 : 18,
-    };
-  }
-  return {
-    ring: buildOctagonFootprint(
-      center,
-      highlight.targetType === "neighborhood" ? 45 : 16
-    ),
-    heightM: 28,
-  };
-}
-
-function isCompactFootprint(geometry: GeoPoint[]): boolean {
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-  for (const point of geometry) {
-    minLat = Math.min(minLat, point.lat);
-    maxLat = Math.max(maxLat, point.lat);
-    minLon = Math.min(minLon, point.lon);
-    maxLon = Math.max(maxLon, point.lon);
-  }
-  const heightM = (maxLat - minLat) * 111_320;
-  const widthM = (maxLon - minLon) * 111_320 * Math.cos((minLat * Math.PI) / 180);
-  return heightM < 180 && widthM < 180;
-}
-
-function ensureClosedLonLatRing(geometry: GeoPoint[]): [number, number][] {
-  const ring: [number, number][] = geometry.map((p) => [p.lon, p.lat]);
-  if (ring.length > 0) {
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) {
-      ring.push([first[0], first[1]]);
-    }
-  }
-  return ring;
-}
-
 export const MinimalMap: React.FC<MinimalMapProps> = ({
   location,
   locationManager,
@@ -148,7 +80,7 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [location.lon, location.lat],
       zoom: 16.4,
-      pitch: 45,
+      pitch: 0,
       bearing: 0,
       attributionControl: false,
     });
@@ -211,23 +143,6 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
         paint: {
           "line-color": "#111111",
           "line-width": 5,
-        },
-      });
-
-      // One raised highlight for the place being talked about
-      map.addSource("spotlight-3d-source", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      map.addLayer({
-        id: "spotlight-extrusion",
-        type: "fill-extrusion",
-        source: "spotlight-3d-source",
-        paint: {
-          "fill-extrusion-color": "#FF385C",
-          "fill-extrusion-opacity": 0.85,
-          "fill-extrusion-height": ["coalesce", ["get", "height_m"], 14],
-          "fill-extrusion-base": 0,
         },
       });
 
@@ -308,27 +223,6 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
               },
             ]
           : [],
-    });
-
-    // C. One 3D highlight. A building footprint is extruded once. A walking
-    // line is not also filled, so the route and the place are not drawn twice.
-    const spotlight3dSource = map.getSource(
-      "spotlight-3d-source"
-    ) as maplibregl.GeoJSONSource | undefined;
-
-    spotlight3dSource?.setData({
-      type: "FeatureCollection",
-      features: highlights.map((item) => {
-        const footprint = footprintForHighlight(item);
-        return {
-          type: "Feature" as const,
-          properties: { name: item.label, height_m: footprint.heightM },
-          geometry: {
-            type: "Polygon" as const,
-            coordinates: [footprint.ring],
-          },
-        };
-      }),
     });
 
     // D. Update Guided Tour Route Polyline & Stop Badges
@@ -415,7 +309,7 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
   };
   syncRef.current = syncAllLayers;
 
-  // Sync layers and tilt the camera so the raised highlight stays in view.
+  // Sync layers and frame the highlighted stop.
   useEffect(() => {
     syncAllLayers();
 
@@ -437,7 +331,7 @@ export const MinimalMap: React.FC<MinimalMapProps> = ({
       for (const item of highlights) bounds.extend([item.lon, item.lat]);
       map.fitBounds(bounds, {
         padding: { top: 130, bottom: 300, left: 40, right: 40 },
-        pitch: 45,
+        pitch: 0,
         bearing: 0,
         duration: 700,
         maxZoom: 17,
