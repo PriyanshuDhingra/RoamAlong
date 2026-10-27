@@ -105,7 +105,7 @@ After that, the same QR code opens the Android app.
 
 ## The Architecture
 
-Boson Realtime is the voice and the orchestrator. It decides when to speak, when to call a tool, and when to stop talking. Behind the scenes, LLM research agents gather information about places ahead of time and store it in a cache. Boson accesses that cache through tools, so it can respond quickly with the information already prepared.
+Boson Realtime is the voice and the orchestrator. It decides when to speak, when to call a tool, and when to stop talking. Behind the scenes, LLM research agents gather information about places ahead of time and store it in Upstash Redis, with a copy in memory for fast lookups. Boson reads that store through tools, so it can respond quickly with the information already prepared.
 
 `LocationManager` handles live location tracking. The map subscribes to it directly to update the location dot and camera. React state only updates when you move about 15 metres, turn about 20 degrees, or switch GPS sources. In Debug mode, it also updates after 250 milliseconds. The heartbeat and walking route use these less frequent updates, so the screen doesn’t re-render on every step.
 
@@ -132,8 +132,6 @@ flowchart LR
   boson --> map
 
   react ~~~ boson
-
-  style boson fill:#e0e7ff,stroke:#6366f1,stroke-width:3px,color:#1e1b4b
 ```
 
 ## Some engineering behind
